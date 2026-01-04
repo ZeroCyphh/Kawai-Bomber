@@ -85,7 +85,12 @@ ANIME_STYLES = {
     "dragon": "🐉",
     "ninja": "🥷",
     "back": "🔙",
-    "hourglass": "⏳"
+    "hourglass": "⏳",
+    "users": "👥",
+    "zap": "⚡",
+    "unlock": "🔓",
+    "lock": "🔒",
+    "boom": "💥"
 }
 
 # ========== YOUR WORKING API CONFIGURATIONS ==========
@@ -1121,73 +1126,4 @@ def start_health_server():
         print(f"🏥 Health server started on port 8080")
         server.serve_forever()
     except Exception as e:
-        print(f"⚠️ Health server error: {e}")
-
-# ========== MAIN FUNCTION ==========
-def main():
-    """Start the bot"""
-    # Register shutdown handlers
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
-    atexit.register(save_state)
-    
-    # Load saved state
-    load_state()
-    
-    # Start health server in background thread if on Railway
-    if PORT or RAILWAY_ENVIRONMENT != 'production':
-        health_thread = threading.Thread(target=start_health_server, daemon=True)
-        health_thread.start()
-        print(f"🚂 Railway Health Server: ACTIVE")
-    
-    # Create Application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("bomb", bomb_command))
-    application.add_handler(CommandHandler("stop", stop_command))
-    application.add_handler(CommandHandler("addadmin", addadmin_command))
-    application.add_handler(CommandHandler("approve", approve_command))
-    application.add_handler(CommandHandler("removeuser", removeuser_command))
-    application.add_handler(CommandHandler("ban", ban_command))
-    application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    
-    # Add callback handler
-    application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Add message handler for phone numbers
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_number))
-    
-    # Start the bot
-    print(f"\n{'='*60}")
-    print(f"{get_anime_banner()}")
-    print(f"{'='*60}")
-    print(f"{ANIME_STYLES['rocket']} Kawai Bomber Bot")
-    print(f"{ANIME_STYLES['crown']} Admin ID: {ADMIN_ID}")
-    print(f"{ANIME_STYLES['star']} Made by: @zerocyph")
-    print(f"{ANIME_STYLES['heart']} Powered by: @zerocyph")
-    print(f"{ANIME_STYLES['shield']} Bot Token: {BOT_TOKEN[:10]}...")
-    print(f"{ANIME_STYLES['fire']} Railway.app Pro Plan")
-    print(f"{ANIME_STYLES['users']} Loaded Users: {len(all_users)}")
-    print(f"{ANIME_STYLES['clock']} Environment: {RAILWAY_ENVIRONMENT}")
-    print(f"{'='*60}\n")
-    
-    # Start background tasks
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.create_task(cleanup_sessions())
-    loop.create_task(autosave_task())
-    
-    # Run the bot
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        poll_interval=0.1,
-        timeout=30,
-        drop_pending_updates=True,
-        close_loop=False
-    )
-
-if __name__ == "__main__":
-    main()
+        print(f"
