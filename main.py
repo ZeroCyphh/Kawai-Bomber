@@ -14,7 +14,13 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional, Tuple
 from collections import defaultdict
-from enum import Enum
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Telegram Bot Imports
 from telegram import (
@@ -35,7 +41,7 @@ from telegram.ext import (
     ConversationHandler
 )
 from telegram.constants import ParseMode
-from telegram.error import TelegramError, NetworkError
+from telegram.error import TelegramError, NetworkError, Conflict
 
 # ==================== CONFIGURATION ====================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8165905656:AAH-rzFBoBCdKMb9A-wv2hx0Hm9RgvGa8m0")
@@ -75,7 +81,10 @@ EMOJIS = {
     "panda": "🐼", "monkey": "🐵", "bird": "🐦", "fish": "🐠",
     "butterfly": "🦋", "unicorn": "🦄", "rainbow": "🌈", "cloud": "☁️",
     "moon": "🌙", "sun": "☀️", "star2": "🌟", "comet": "☄️",
-    "galaxy": "🌌", "planet": "🪐", "alien": "👽", "robot": "🤖"
+    "galaxy": "🌌", "planet": "🪐", "alien": "👽", "robot": "🤖",
+    
+    # Fixed missing emojis
+    "example": "📝", "rate": "📈", "target": "🎯"
 }
 
 # ASCII Art Banner
@@ -330,7 +339,6 @@ class ProxyRotationManager:
     def __init__(self, proxy_list):
         self.proxies = proxy_list
         self.current_index = 0
-        self.working_proxies = []
         
     def get_next_proxy(self):
         """Get next proxy in rotation"""
@@ -379,8 +387,6 @@ class AttackEngine:
         self.success_count = 0
         self.failed_count = 0
         self.active_apis = []
-        self.proxy_rotation = proxy_manager
-        self.attack_speed = 0.1  # Seconds between attacks
         
     async def launch_attack(self, duration_minutes=60):
         """Launch attack with time limit"""
@@ -849,12 +855,13 @@ async def _execute_attack_session(user_id: int, engine: AttackEngine, duration: 
     try:
         await engine.launch_attack(duration)
     except Exception as e:
-        print(f"Attack error for user {user_id}: {str(e)}")
+        logger.error(f"Attack error for user {user_id}: {str(e)}")
     finally:
         # Clean up after attack ends
         if user_id in active_attacks:
             bot_statistics["active_attacks"] = max(0, bot_statistics["active_attacks"] - 1)
-            del active_attacks[user_id]
+            if user_id in active_attacks:
+                del active_attacks[user_id]
 
 async def _update_attack_stats(user_id: int, context: ContextTypes.DEFAULT_TYPE):
     """Update live attack statistics"""
@@ -900,12 +907,13 @@ async def _update_attack_stats(user_id: int, context: ContextTypes.DEFAULT_TYPE)
                     text=live_stats,
                     parse_mode=ParseMode.HTML
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to update message: {e}")
             
             await asyncio.sleep(update_interval)
             
         except Exception as e:
+            logger.error(f"Error updating attack stats: {e}")
             break
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1371,7 +1379,6 @@ async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get system info
     cpu_usage = psutil.cpu_percent()
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
     
     sysinfo_message = f"""
 {EMOJIS['server']} <b>SYSTEM INFORMATION</b> {EMOJIS['server']}
@@ -1379,7 +1386,6 @@ async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 {EMOJIS['cpu']} <b>CPU USAGE:</b> {cpu_usage}%
 {EMOJIS['memory']} <b>MEMORY:</b> {memory.percent}% ({memory.used//1024//1024}MB/{memory.total//1024//1024}MB)
-{EMOJIS['disk']} <b>DISK:</b> {disk.percent}% ({disk.used//1024//1024}MB/{disk.total//1024//1024}MB)
 
 {EMOJIS['os']} <b>OPERATING SYSTEM:</b> {platform.system()} {platform.release()}
 {EMOJIS['python']} <b>PYTHON VERSION:</b> {platform.python_version()}
@@ -1443,14 +1449,23 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle bot errors"""
     try:
         raise context.error
+    except Conflict:
+        # This error occurs when another instance is running
+        logger.error("Conflict: Another bot instance is running")
+    except AttributeError as e:
+        if "'NoneType' object has no attribute" in str(e):
+            logger.error(f"Attribute error: {e}")
     except Exception as e:
-        print(f"\n{EMOJIS['error']} ERROR: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         if update and update.effective_message:
-            await update.effective_message.reply_text(
-                f"{EMOJIS['error']} <b>An error occurred!</b>\n"
-                f"Please try again later.",
-                parse_mode=ParseMode.HTML
-            )
+            try:
+                await update.effective_message.reply_text(
+                    f"{EMOJIS['error']} <b>An error occurred!</b>\n"
+                    f"Please try again later.",
+                    parse_mode=ParseMode.HTML
+                )
+            except:
+                pass
 
 # ==================== MAIN FUNCTION ====================
 def main():
@@ -1467,10 +1482,10 @@ def main():
         print(f"Please set BOT_TOKEN environment variable.")
         sys.exit(1)
     
-    # Create application
+    # Create application with proper settings for Railway
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Create conversation handler for bombing
+    # Create conversation handler with per_message=True to fix warning
     conversation_handler = ConversationHandler(
         entry_points=[CommandHandler("bomb", bomb_command)],
         states={
@@ -1478,7 +1493,8 @@ def main():
             CONFIRM: [CallbackQueryHandler(handle_confirmation, pattern="^(confirm_attack|cancel_attack)$")],
             BOMB_TYPE: [CallbackQueryHandler(handle_attack_type, pattern="^attack_")]
         },
-        fallbacks=[CommandHandler("cancel", cancel_conversation)]
+        fallbacks=[CommandHandler("cancel", cancel_conversation)],
+        per_message=True  # This fixes the warning
     )
     
     # Add command handlers
@@ -1508,15 +1524,22 @@ def main():
     # Add error handler
     application.add_error_handler(error_handler)
     
-    # Start bot
+    # Start bot with proper settings for Railway
     print(f"\n{EMOJIS['rocket']} Bot is running...")
     print(f"{EMOJIS['star']} Press Ctrl+C to stop")
     
     try:
+        # Run with polling and proper conflict handling
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
+            drop_pending_updates=True,  # This helps with multiple instances
+            close_loop=False  # Important for Railway
         )
+    except Conflict as e:
+        print(f"\n{EMOJIS['error']} CONFLICT ERROR: Another bot instance is running!")
+        print("Please check if the bot is already running elsewhere.")
+        print("Stopping this instance to avoid conflicts.")
+        sys.exit(1)
     except KeyboardInterrupt:
         print(f"\n{EMOJIS['success']} Bot stopped by user.")
         sys.exit(0)
